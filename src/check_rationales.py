@@ -1,10 +1,25 @@
+import ast
 import logging
 import random
+import re
 from collections import Counter
+from pathlib import Path
 
 import datasets
 import hydra
+import openai
 import torch
+from omegaconf import OmegaConf
+from tenacity import (
+    Retrying,
+    retry_if_exception_type,
+    retry_if_result,
+    stop_after_attempt,
+    stop_after_delay,
+    wait_exponential,
+    wait_fixed,
+)
+from tqdm import tqdm
 from vllm import LLM, SamplingParams
 
 from configs.structured_config import Config
@@ -112,10 +127,13 @@ def _string_to_dict(to_convert: str) -> dict[str, str]:
     return {s.split("=", 1)[0]: s.split("=", 1)[1] for s in to_convert.split(" ") if len(s) > 0}
 
 
-def clean_llm_output(output: str) -> str:
+def clean_llm_output(output: str) -> dict:
     if "</think>" in output:
         output = output[output.find("</think>") + 1 :]
-    return output
+    output = output.strip()
+    pattern = r"```json\n(.*?)\n```"
+    match = re.search(pattern, output, re.DOTALL)
+    return ast.literal_eval(match.group(1).strip()) if match else {}
 
 
 def fill_prompt(preference: str, instruction: str, code1: str, code2: str) -> str:
@@ -135,32 +153,89 @@ def fill_prompt(preference: str, instruction: str, code1: str, code2: str) -> st
         return PROMPT_TEMPLATE.format(user_instruction=instruction, code1=code2, code2=code1, evaluation_criteria=evaluation_criteria)
 
 
-@hydra.main(version_base=None, config_name="check_rationales")
+@hydra.main(version_base=None, config_name="config")
 def main(cfg: Config) -> None:
-    dataset = datasets.load_dataset(cfg.data.name, split=cfg.data.split)
-    dataset = dataset.shuffle(seed=cfg.data.seed).select(range(cfg.data.num_samples))
-    log.info(f"Loaded {len(dataset)} samples from {cfg.data.name}.")
-    log.info(f"Using model: {cfg.model.name}")
-    log.info(f"Using sampling params: {cfg.sparams}")
+    print(OmegaConf.to_yaml(cfg.db))
+    dataset = datasets.load_dataset(cfg.db.data.name, split=cfg.db.data.split)
+    dataset = dataset.shuffle(seed=cfg.db.data.seed).select(range(cfg.db.data.num_samples))
+    log.info(f"Loaded {len(dataset)} samples from {cfg.db.data.name}.")
+    log.info(f"Using model: {cfg.db.model.name}")
+    log.info(f"Using sampling params: {cfg.db.sparams}")
     log.info(f"Preference distribution: {Counter(dataset['preference'])}")
 
     prompts = [fill_prompt(x["preference"], x["instruction"], x["chosen"], x["rejected"]) for x in dataset]
     prompts = [_prompt_to_chatml(prompt) for prompt in prompts]
     log.info(f"Generated {len(prompts)} prompts.")
-    if 0 == 1:
+
+    if cfg.db.model.name in ["deepseek-ai/DeepSeek-R1"]:
+        responses = []
+        if cfg.db.model.service == "azure_openai":
+            client = openai.AzureOpenAI(
+                api_key=cfg.db.model.api_key,
+                azure_endpoint=cfg.db.model.api_base,
+                api_version="2024-12-01-preview",
+            )
+        else:
+            client = openai.OpenAI(
+                api_key=cfg.db.model.api_key,
+                base_url=cfg.db.model.api_base,
+            )
+
+        if cfg.db.retries.exponential_backoff:
+            wait_config = wait_exponential(
+                min=cfg.db.retries.retry_interval,
+                max=cfg.db.retries.max_retry_interval,
+                multiplier=2,
+            )
+        else:
+            wait_config = wait_fixed(cfg.db.retries.retry_interval)
+
+        for prompt in tqdm(prompts, total=len(prompts), desc="Generating responses"):
+            for attempt in Retrying(
+                retry=retry_if_exception_type(openai.RateLimitError)
+                | retry_if_exception_type(openai.APIError)
+                | retry_if_exception_type(openai.OpenAIError)
+                | retry_if_result(lambda result: cfg.db.retries.retry_when_blank and any([r.message.content == "" for r in result.choices])),
+                stop=stop_after_attempt(cfg.db.retries.max_retries) | stop_after_delay(cfg.db.retries.retry_timeout),
+                wait=wait_config,
+            ):
+                with attempt:
+                    response = client.chat.completions.create(
+                        messages=prompt,
+                        model=cfg.db.model.name,
+                        n=cfg.db.sparams.n,
+                        temperature=cfg.db.sparams.temperature,
+                        max_tokens=cfg.db.sparams.max_tokens,
+                        seed=cfg.db.sparams.seed,
+                    )
+                    responses.extend([choice.message.content for choice in response.choices])
+    else:
         llm = LLM(
-            cfg.model.name,
+            cfg.db.model.name,
             trust_remote_code=True,
             tensor_parallel_size=torch.cuda.device_count(),
         )
         sampling_params = SamplingParams(
-            temperature=cfg.sparams.temperature,
-            max_tokens=cfg.sparams.max_tokens,
+            temperature=cfg.db.sparams.temperature,
+            max_tokens=cfg.db.sparams.max_tokens,
+            n=cfg.db.sparams.n,
+            seed=cfg.db.sparams.seed,
         )
         responses = llm.chat(prompts, sampling_params)
+        responses = [x.outputs[0].text for x in responses]
 
-        log.info(f"Generated {len(responses)} responses.")
-        dataset = dataset.add_column("responses", [response["content"] for response in responses])
+    breakpoint()
+    log.info(f"Generated {len(responses)} responses.")
+
+    responses = [clean_llm_output(response) for response in responses]
+    dataset = dataset.add_column("gen_rationale", [response.get("rationale", None) for response in responses])
+    dataset = dataset.add_column("gen_pref", [response.get("preferred_code", None) for response in responses])
+    log.info(dataset)
+
+    model_short_name = cfg.db.model.name.split("/")[-1].lower()
+    output_dir = Path(__file__).parent / f"outputs/{model_short_name}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dataset.to_csv(output_dir / "generated_rationales.csv")
 
 
 if __name__ == "__main__":
