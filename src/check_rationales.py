@@ -224,7 +224,6 @@ def main(cfg: Config) -> None:
         responses = llm.chat(prompts, sampling_params)
         responses = [x.outputs[0].text for x in responses]
 
-    breakpoint()
     log.info(f"Generated {len(responses)} responses.")
 
     responses = [clean_llm_output(response) for response in responses]

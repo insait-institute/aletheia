@@ -31,7 +31,7 @@ class SParams:
 class Data:
     name: str = "coseal/CodeUltraFeedback_binarized"
     split: str = "train"
-    num_samples: int = 2
+    num_samples: int = 250
     seed: int = 42
 
 
