@@ -22,12 +22,12 @@ from tenacity import (
 from tqdm import tqdm
 from vllm import LLM, SamplingParams
 
-from configs.structured_config import Config
+from configs.check_rationales_config import Config
 
 log = logging.getLogger(__name__)
 
 PROMPT_TEMPLATE = """<|im_start|>system
-Please act as an impartial judge and evaluate the quality of the response provided by two AI assistants to the user instruction  displayed below. Your overall evaluation needs to be reflective of the specified Evaluation Criteria. Be as objective as possible. After providing your rationale, you must pick one of the two AI assistants whose output you prefer. Indicate your preference as "[[A]]" if you prefer the first assistant's code, and "[[B]]" if you prefer the second assistant's code. Do not indicate your preference in any other manner.
+Please act as an impartial judge and evaluate the quality of the response provided by two AI assistants to the user instruction  displayed below. Your overall evaluation needs to be reflective of the specified evaluation criteria. Be as objective as possible. After providing your rationale, you must pick one of the two AI assistants whose output you prefer. Indicate your preference as "[[A]]" if you prefer the first assistant's response, and "[[B]]" if you prefer the second assistant's response. Do not indicate your preference in any other manner.
 <|im_end|>
 
 <|im_start|>user
@@ -35,13 +35,13 @@ Please act as an impartial judge and evaluate the quality of the response provid
 {user_instruction}
 </user_instruction>
 
-<code_A>
+<response_A>
 {code1}
-</code_A>
+</response_A>
 
-<code_B>
+<response_B>
 {code2}
-</code_B>
+</response_B>
 
 <evaluation_criteria>
 {evaluation_criteria}
@@ -51,7 +51,7 @@ Output your answer ONLY as a markdown json block in the following format:
 ```json
 {{
     "rationale": "<your rationale here>",
-    "preferred_code": "[[A]] or [[B]], where refers [[A]] is the first code snippet and [[B]] is the second code snippet",
+    "preferred_code": "[[A]] or [[B]], where refers [[A]] is the first response and [[B]] is the second response",
 }}
 ```
 <|im_end|>
@@ -127,16 +127,25 @@ def _string_to_dict(to_convert: str) -> dict[str, str]:
     return {s.split("=", 1)[0]: s.split("=", 1)[1] for s in to_convert.split(" ") if len(s) > 0}
 
 
-def clean_llm_output(output: str) -> dict:
-    if "</think>" in output:
-        output = output[output.find("</think>") + 1 :]
+def clean_llm_output(output: str) -> tuple[dict[str, str], str]:
+    if "<think>" in output:
+        rationale = re.match(r"<think>(.*?)</think>", output, re.DOTALL)
+        rationale = rationale.group(1).strip() if rationale else ""
+    elif "</think>" in output:
+        rationale = output[: output.find("</think>")].strip()
+    else:
+        rationale = ""
+    output = output[output.find("</think>") + len("</think>") :]
     output = output.strip()
-    pattern = r"```json\n(.*?)\n```"
-    match = re.search(pattern, output, re.DOTALL)
-    return ast.literal_eval(match.group(1).strip()) if match else {}
+    match = re.search(r"```json\n(.*?)\n```", output, re.DOTALL)
+    try:
+        match = ast.literal_eval(match.group(1).strip())
+    except Exception:
+        match = {}
+    return (match, rationale)
 
 
-def fill_prompt(preference: str, instruction: str, code1: str, code2: str) -> str:
+def fill_prompt(preference: str, instruction: str, code1: str, code2: str) -> tuple[str, int]:
     if preference == "complexity":
         evaluation_criteria = CODE_COMPLEXITY
     elif preference == "readability":
@@ -148,12 +157,13 @@ def fill_prompt(preference: str, instruction: str, code1: str, code2: str) -> st
     elif preference == "instruction-following":
         evaluation_criteria = INSTRUCTION_FOLLOWING
     if random.random() < 0.5:
-        return PROMPT_TEMPLATE.format(user_instruction=instruction, code1=code1, code2=code2, evaluation_criteria=evaluation_criteria)
+        # Randomly swap code1 and code2
+        return PROMPT_TEMPLATE.format(user_instruction=instruction, code1=code1, code2=code2, evaluation_criteria=evaluation_criteria), 0
     else:
-        return PROMPT_TEMPLATE.format(user_instruction=instruction, code1=code2, code2=code1, evaluation_criteria=evaluation_criteria)
+        return PROMPT_TEMPLATE.format(user_instruction=instruction, code1=code2, code2=code1, evaluation_criteria=evaluation_criteria), 1
 
 
-@hydra.main(version_base=None, config_name="config")
+@hydra.main(version_base=None, config_name="check_rationales_config")
 def main(cfg: Config) -> None:
     print(OmegaConf.to_yaml(cfg.db))
     dataset = datasets.load_dataset(cfg.db.data.name, split=cfg.db.data.split)
@@ -163,7 +173,11 @@ def main(cfg: Config) -> None:
     log.info(f"Using sampling params: {cfg.db.sparams}")
     log.info(f"Preference distribution: {Counter(dataset['preference'])}")
 
-    prompts = [fill_prompt(x["preference"], x["instruction"], x["chosen"], x["rejected"]) for x in dataset]
+    fill_results = [fill_prompt(x["preference"], x["instruction"], x["chosen"], x["rejected"]) for x in dataset]
+    prompts, swapped = zip(*fill_results)
+
+    dataset = dataset.add_column("swapped", swapped)
+
     prompts = [_prompt_to_chatml(prompt) for prompt in prompts]
     log.info(f"Generated {len(prompts)} prompts.")
 
@@ -225,16 +239,17 @@ def main(cfg: Config) -> None:
         responses = [x.outputs[0].text for x in responses]
 
     log.info(f"Generated {len(responses)} responses.")
-
+    breakpoint()
     responses = [clean_llm_output(response) for response in responses]
-    dataset = dataset.add_column("gen_rationale", [response.get("rationale", None) for response in responses])
-    dataset = dataset.add_column("gen_pref", [response.get("preferred_code", None) for response in responses])
-    log.info(dataset)
-
-    model_short_name = cfg.db.model.name.split("/")[-1].lower()
-    output_dir = Path(__file__).parent / f"outputs/{model_short_name}"
+    breakpoint()
+    dataset = dataset.add_column("gen_thoughts", [response[1] for response in responses])
+    dataset = dataset.add_column("gen_cot", [response[0].get("rationale", None) for response in responses])
+    dataset = dataset.add_column("gen_pref", [response[0].get("preferred_code", None) for response in responses])
+    dataset = dataset.sort("preference")
+    model_short_name = cfg.db.model.name.split("/")[-1].lower().replace("-", "_")
+    output_dir = Path(__file__).parent / "outputs/rationales"
     output_dir.mkdir(parents=True, exist_ok=True)
-    dataset.to_csv(output_dir / "generated_rationales.csv")
+    dataset.to_csv(output_dir / f"{model_short_name}.csv")
 
 
 if __name__ == "__main__":
