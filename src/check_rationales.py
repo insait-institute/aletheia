@@ -239,9 +239,7 @@ def main(cfg: Config) -> None:
         responses = [x.outputs[0].text for x in responses]
 
     log.info(f"Generated {len(responses)} responses.")
-    breakpoint()
     responses = [clean_llm_output(response) for response in responses]
-    breakpoint()
     dataset = dataset.add_column("gen_thoughts", [response[1] for response in responses])
     dataset = dataset.add_column("gen_cot", [response[0].get("rationale", None) for response in responses])
     dataset = dataset.add_column("gen_pref", [response[0].get("preferred_code", None) for response in responses])
