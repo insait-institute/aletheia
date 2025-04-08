@@ -128,15 +128,12 @@ def _string_to_dict(to_convert: str) -> dict[str, str]:
 
 
 def clean_llm_output(output: str) -> tuple[dict[str, str], str]:
-    if "<think>" in output:
-        rationale = re.match(r"<think>(.*?)</think>", output, re.DOTALL)
-        rationale = rationale.group(1).strip() if rationale else ""
-    elif "</think>" in output:
-        rationale = output[: output.find("</think>")].strip()
+    if "</think>" in output:
+        rationale = re.match(r"^.*?</think>", output, re.DOTALL)
+        rationale = rationale.group(1).replace("<think>", "").strip() if rationale else ""
     else:
         rationale = ""
-    output = output[output.find("</think>") + len("</think>") :]
-    output = output.strip()
+    output = re.sub(r"^.*?</think>", "", output, re.DOTALL).strip()
     match = re.search(r"```json\n(.*?)\n```", output, re.DOTALL)
     try:
         match = ast.literal_eval(match.group(1).strip())
