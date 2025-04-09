@@ -127,7 +127,7 @@ def _string_to_dict(to_convert: str) -> dict[str, str]:
 
 
 def clean_llm_output(output: str) -> dict[str, str]:
-    output = re.sub(r"^.*?</think>", "", output, flags=re.DOTALL)
+    output = re.sub(r"^(.*?)</think>", "", output, flags=re.DOTALL)
     output = output.strip()
     match = re.search(r"```json\n(.*?)\n```", output, re.DOTALL)
     try:

@@ -186,9 +186,9 @@ def main(cfg: Config) -> None:
     log.info(f"Generated {len(responses)} responses.")
 
     responses = [clean_llm_output(response) for response in responses]
-    gen_thoughts = [response[0] for response in responses]
-    gen_answers = [response[1].get("preferred_response", None) for response in responses]
-    gen_cot = [response[1].get("reasoning", None) for response in responses]
+    gen_thoughts = [response[1] for response in responses]
+    gen_answers = [response[0].get("preferred_response", None) for response in responses]
+    gen_cot = [response[0].get("reasoning", None) for response in responses]
     dataset = dataset.add_column("gen_thoughts", gen_thoughts)
     dataset = dataset.add_column("gen_cot", gen_cot)
     dataset = dataset.add_column("gen_answer", gen_answers)

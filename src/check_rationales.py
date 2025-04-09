@@ -129,7 +129,7 @@ def _string_to_dict(to_convert: str) -> dict[str, str]:
 
 def clean_llm_output(output: str) -> tuple[dict[str, str], str]:
     if "</think>" in output:
-        rationale = re.match(r"^.*?</think>", output, re.DOTALL)
+        rationale = re.match(r"^(.*?)</think>", output, re.DOTALL)
         rationale = rationale.group(1).replace("<think>", "").strip() if rationale else ""
     else:
         rationale = ""
