@@ -118,8 +118,10 @@ def main(cfg: Config) -> None:
     avg_score_difference = sum([x - y for x, y in zip(dataset["score_chosen"], dataset["score_rejected"])]) / len(dataset)
     log.info(f"Average score difference: {avg_score_difference:.2f}")
     # average_score_difference = dataset["score_chosen"] - dataset["score_rejected"]
+    dataset["chosen"] = dataset["chosen"].apply(lambda x: get_content(x))
+    dataset["rejected"] = dataset["rejected"].apply(lambda x: get_content(x))
 
-    fill_results = [fill_prompt(x["prompt"], get_content(x["chosen"]), get_content(x["rejected"])) for x in dataset]
+    fill_results = [fill_prompt(x["prompt"], x["chosen"], x["rejected"]) for x in dataset]
     prompts, swapped = zip(*fill_results)
     dataset = dataset.add_column("swapped", swapped)
 
