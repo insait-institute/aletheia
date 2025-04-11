@@ -31,6 +31,7 @@ You must choose one of the responses that better fits the user's request.
 You must evaluate the alignment between the output and the user's intent.
 Assess each assistant's understanding of the task goal (the intended outcome) and restrictions (text styles, formats, designated methods, etc).
 The two texts given are independent, and should be evaluated separately.
+Indicate your preference as "[[A]]" if you prefer the first assistant's response, and "[[B]]" if you prefer the second assistant's response. Do not indicate your preference in any other manner.
 <|im_end|>
 
 <|im_start|>user
@@ -98,10 +99,9 @@ def clean_llm_output(output: str) -> tuple[dict[str, str], str]:
 
 def fill_prompt(instruction: str, resp1: str, resp2: str) -> tuple[str, int]:
     if random.random() < 0.5:
-        # Randomly swap code1 and code2
         return PROMPT_TEMPLATE.format(user_input=instruction, response_A=resp1, response_B=resp2), 0
     else:
-        return PROMPT_TEMPLATE.format(user_input=instruction, response_A=resp1, response_B=resp2), 1
+        return PROMPT_TEMPLATE.format(user_input=instruction, response_A=resp2, response_B=resp1), 1
 
 
 def get_content(responses: list[dict]) -> str:
@@ -111,6 +111,8 @@ def get_content(responses: list[dict]) -> str:
 @hydra.main(version_base=None, config_name="uf_success_rate_config")
 def main(cfg: Config) -> None:
     dataset = datasets.load_dataset(cfg.db.data.name, split=cfg.db.data.split)
+    dataset = dataset.add_column("score_diff", [x - y for x, y in zip(dataset["score_chosen"], dataset["score_rejected"])])
+    dataset = dataset.filter(lambda x: x["score_diff"] >= 3)
     dataset = dataset.shuffle(seed=cfg.db.data.seed).select(range(cfg.db.data.num_samples))
     log.info(f"Loaded {len(dataset)} samples from {cfg.db.data.name}.")
     log.info(f"Using model: {cfg.db.model.name}")
@@ -118,8 +120,7 @@ def main(cfg: Config) -> None:
     avg_score_difference = sum([x - y for x, y in zip(dataset["score_chosen"], dataset["score_rejected"])]) / len(dataset)
     log.info(f"Average score difference: {avg_score_difference:.2f}")
     # average_score_difference = dataset["score_chosen"] - dataset["score_rejected"]
-    dataset["chosen"] = dataset["chosen"].apply(lambda x: get_content(x))
-    dataset["rejected"] = dataset["rejected"].apply(lambda x: get_content(x))
+    dataset = dataset.map(lambda x: {"chosen": get_content(x["chosen"]), "rejected": get_content(x["rejected"])})
 
     fill_results = [fill_prompt(x["prompt"], x["chosen"], x["rejected"]) for x in dataset]
     prompts, swapped = zip(*fill_results)
@@ -195,7 +196,7 @@ def main(cfg: Config) -> None:
     dataset = dataset.add_column("gen_cot", gen_cot)
     dataset = dataset.add_column("gen_answer", gen_answers)
 
-    correct_answers = ["[[B]]" if swapped else "[[A]]" for swapped in dataset["swapped"]]
+    correct_answers = ["[[B]]" if swap else "[[A]]" for swap in dataset["swapped"]]
     correct = [verdict == answer for verdict, answer in zip(gen_answers, correct_answers)]
     accuracy = sum(correct) / len(correct)
     log.info(f"Model: {cfg.db.model.name}")
