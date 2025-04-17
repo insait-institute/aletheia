@@ -130,7 +130,7 @@ def markdownize(cfg: MDConfig):
     data = datasets.load_dataset(cfg.data.name, trust_remote_code=True)
 
     log.info(f"Processing column: {cfg.data.col}, cfg.data.split: {cfg.data.split}")
-    data[cfg.data.split] = data[cfg.data.split].select(range(100))
+    # data[cfg.data.split] = data[cfg.data.split].select(range(100))
     data[cfg.data.split] = data[cfg.data.split].map(lambda x: create_prompt(x, cfg.data.col))
     log.info(f"Created {len(data[cfg.data.split])} prompts")
     md_responses = run_llm(llm, sampling_params, data[cfg.data.split]["prompt"])
