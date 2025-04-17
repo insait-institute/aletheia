@@ -11,7 +11,7 @@ class LocalModel:
 @dataclass
 class SParams:
     temperature: float = 0
-    max_tokens: int = 10000
+    max_tokens: int = 20000
     n: int = 1
     seed: int = 42
 
@@ -19,8 +19,8 @@ class SParams:
 @dataclass
 class Data:
     name: str = "CodeShield/Commit-Preference-Enhanced"
-    chosen_col: str = "chosen"
-    rejected_col: str = "rejected"
+    col: str = "rejected"
+    split: str = "test"
 
 
 @dataclass

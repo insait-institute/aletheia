@@ -1,5 +1,6 @@
 import logging
 import re
+from pathlib import Path
 from typing import Any, Dict
 
 import datasets
@@ -20,27 +21,20 @@ You are the founder and CEO of a successful startup that provides solutions to c
 <|im_end|>
 
 <|im_start|>user
-Your client, Alex, has asked a coding question (ALEX_QUESTION) and your colleague, Bob, has provided a correct, efficient and secure response (BOB_RESPONSE). You must write write a final response that can be sent to Alex. Here are some guidelines you should follow:
+Your client, Alex, has asked a coding question (ALEX_QUESTION) and your colleague, Bob, has provided a correct, efficient and secure response (BOB_RESPONSE). You must write write a final response that can be sent to Alex.
+Here are the guidelines that you must follow. Failure to follow any of these guidelines is considered a poor response and you will lose Alex as a client.
 
-1. Your response should directly reply to Alex's question, containing Bob's code exactly as is provided.
+1. You must not modify Bob's code in any way. It must be included exactly as is provided to you.
 
-2. Don't just explain how Bob's code works — make sure your reply answers what Alex asked using helpful, natural language and explain the thought process that may have led Bob to arriving at the code. 
+2. DO NOT refer to Bob or Alex. Simply reply with a detailed explanation of the code.
 
-3. DO NOT refer to Bob or Alex. Simply reply with a detailed explanation of the code.
+3. Your response should be a reply to Alex's question, not an explanation of Bob's code. Start your response with phrases like "Certainly!", "Sure!", "Absolutely," or other similar phrases.
 
-4. Wrap the code block in triple backticks (```) with the appropriate language identifier (e.g., python, javascript, etc.), unless already wrapped.
+4. Explain the code in detail, including the logic behind it. Your explanation must be in English.
 
-5. Avoid using emojis and special unicode characters unless part of the code. You are a professional and your response should reflect that.
+5. Wrap the code block in triple backticks (```) with the appropriate language identifier (e.g., python, javascript, etc.), unless already wrapped.
 
-6. Alex can only understand English, so avoid using any other languages in your response.
-
-7. DO NOT change the code block in any way — keep the formatting, indentation, comments, and line breaks exactly as they are in Bob's response. You must simply include Bob's code in your response as is, and explain it as if you came up with it.
-
-8. DO NOT introduce new code, even if it looks like a "better version".
-
-9. DO NOT alter variable names, comments, or formatting.
-
-10. You MUST include Bob's response exactly as it is in your response.
+6. Avoid using emojis and special unicode characters unless part of the code. You are a professional and your response should reflect that.
 
 
 Part A: Write a markdown-formatted response directly replying to Alex's question, containing Bob's response exactly as is provided. The response must be enclosed within <FINAL_ANSWER> and </FINAL_ANSWER> tags as shown below:
@@ -49,7 +43,9 @@ Part A: Write a markdown-formatted response directly replying to Alex's question
 {{Your response to Alex's question, containing Bob's response, goes here.}}
 </FINAL_ANSWER>
 
-Part B: Score your answer on a scale of 1 to 5, where 1 is a poor answer that does not follow any of the guidelines, and 5 is a perfect answer that follows all of the guidelines. Provide a brief explanation of your score, followed by the score itself. The score must be enclosed within <SCORE> and </SCORE> tags, and the explanation must be enclosed within <SCORE_EXPLANATION> and </SCORE_EXPLANATION> tags as shown below:
+Part B: Score your answer on a scale of 1 to 5, where 1 is a poor answer that does not follow any of the guidelines, 2-3 is a response that follows some guidelines but fails to follow others, and 4-5 is a (near)perfect answer that follows all of the guidelines. You must be impartial and honest in your scoring. An inaccurate score can prove to be catastrophic for your startup and you will lose Alex as a client. Think carefully step-by-step before scoring your answer.
+
+Provide a brief explanation of your score, followed by the score itself. The score must be enclosed within <SCORE> and </SCORE> tags, and the explanation must be enclosed within <SCORE_EXPLANATION> and </SCORE_EXPLANATION> tags as shown below:
 
 <SCORE_EXPLANATION>
 {{Your explanation of the score goes here.}}
@@ -59,8 +55,9 @@ Part B: Score your answer on a scale of 1 to 5, where 1 is a poor answer that do
 {{Your score goes here.}}
 </SCORE>
 
-To give you a better idea of the task, here is an end-to-end example:
-<DEMO_EXAMPLE>
+Here are some examples to give you a better demonstration of the task:
+
+<DEMO_EXAMPLE_1>
 <ALEX_QUESTION>
 Can you provide an efficient algorithm in Python to generate numbers in the Fibonacci sequence?
 </ALEX_QUESTION>
@@ -124,16 +121,209 @@ Please note that this implementation assumes that the input is a non-negative in
 </FINAL_ANSWER>
 
 <SCORE_EXPLANATION>
-This response strictly follows all the provided guidelines. It includes Bob's code exactly as written without any modifications and wraps it in a properly formatted Python code block. The explanation answers the original question directly and clearly explains how the code works, including input checks, initialization, iterative logic, and the reasoning behind each step. It avoids any mention of Bob or Alex, maintains a professional tone, and does not introduce any new code or alternative approaches. The explanation is both accurate and helpful, providing additional context on how to use the function and what assumptions it makes about input types.
+The response follows all the guidelines: it includes Bob's code exactly as provided, begins with "Certainly!", uses a properly labeled code block, offers a clear, detailed explanation of the logic and complexity without referencing Bob or Alex, and maintains a professional tone without emojis or unnecessary modifications. 
 </SCORE_EXPLANATION>
 
 <SCORE>
 5
 </SCORE>
+</DEMO_EXAMPLE_1>
 
-</DEMO_EXAMPLE>
+<DEMO_EXAMPLE_2>
+<ALEX_QUESTION>
+Create a program to evaluate a postfix expression, considering only integer operands and operators +, -, *, and /. The program should also handle parentheses in the expression and throw an error if they are mismatched.
+</ALEX_QUESTION>
 
-Finally, here is Alex's question and Bob's response that you must format. The question is enclosed within <ALEX_QUESTION> and </ALEX_QUESTION>, and Bob's response is enclosed within <BOB_RESPONSE> and </BOB_RESPONSE>. Reply only in the manner described above, and do not include any additional text or explanations.
+<BOB_RESPONSE>
+def evaluate_postfix(expression):
+    stack = []
+
+    for char in expression:
+        if char.isdigit():
+            stack.append(int(char))
+        elif char in '+-*/':
+            if len(stack) < 2:
+                raise ValueError("Invalid expression")
+
+            operand2 = stack.pop()
+            operand1 = stack.pop()
+
+            if char == '+':
+                stack.append(operand1 + operand2)
+            elif char == '-':
+                stack.append(operand1 - operand2)
+            elif char == '*':
+                stack.append(operand1 * operand2)
+            elif char == '/':
+                stack.append(operand1 / operand2)
+        elif char == '(':
+            stack.append(char)
+        elif char == ')':
+            if '(' not in stack:
+                raise ValueError("Mismatched parentheses")
+
+            while stack[-1] != '(':
+                if len(stack) < 3:
+                    raise ValueError("Invalid expression")
+
+                operand2 = stack.pop()
+                operator = stack.pop()
+                operand1 = stack.pop()
+
+                if operator == '+':
+                    stack.append(operand1 + operand2)
+                elif operator == '-':
+                    stack.append(operand1 - operand2)
+                elif operator == '*':
+                    stack.append(operand1 * operand2)
+                elif operator == '/':
+                    stack.append(operand1 / operand2)
+
+            stack.pop()  # Remove the '('
+
+    if '(' in stack:
+        raise ValueError("Mismatched parentheses")
+
+    if len(stack) != 1:
+        raise ValueError("Invalid expression")
+
+    return stack[0]
+</BOB_RESPONSE>
+
+<FINAL_ANSWER>
+```python
+def evaluate_postfix(expression):
+    stack = []
+
+    for char in expression:
+        if char.isdigit():
+            stack.append(int(char))
+        elif char in '+-*/':
+            if len(stack) < 2:
+                raise ValueError("Invalid expression")
+
+            operand2 = stack.pop()
+            operand1 = stack.pop()
+
+            if char == '+':
+                stack.append(operand1 + operand2)
+            elif char == '-':
+                stack.append(operand1 - operand2)
+            elif char == '*':
+                stack.append(operand1 * operand2)
+            elif char == '/':
+                stack.append(operand1 / operand2)
+        elif char == '(':
+            stack.append(char)
+        elif char == ')':
+            if '(' not in stack:
+                raise ValueError("Mismatched parentheses")
+
+            while stack[-1] != '(':
+                if len(stack) < 3:
+                    raise ValueError("Invalid expression")
+
+                operand2 = stack.pop()
+                operator = stack.pop()
+                operand1 = stack.pop()
+
+                if operator == '+':
+                    stack.append(operand1 + operand2)
+                elif operator == '-':
+                    stack.append(operand1 - operand2)
+                elif operator == '*':
+                    stack.append(operand1 * operand2)
+                elif operator == '/':
+                    stack.append(operand1 / operand2)
+
+            stack.pop()  # Remove the '('
+
+    if '(' in stack:
+        raise ValueError("Mismatched parentheses")
+
+    if len(stack) != 1:
+        raise ValueError("Invalid expression")
+
+    return stack[0]
+```
+Note: The program assumes that the input expression is a valid postfix expression with correct placement of operands, operators, and parentheses. It does not handle other error cases like division by zero or invalid characters.
+</FINAL_ANSWER>
+
+<SCORE_EXPLANATION>
+The response fails to follow multiple core guidelines: it does not begin with an appropriate opening phrase (e.g., "Certainly!"), provides no detailed English explanation of the algorithm's logic, and only offers a brief note rather than a step-by-step walkthrough. While the code is included unmodified, the lack of explanation makes it non-compliant.
+</SCORE_EXPLANATION>
+
+<SCORE>
+1 
+</SCORE>
+</DEMO_EXAMPLE_2>
+
+<DEMO_EXAMPLE_3>
+<ALEX_QUESTION> 
+Write a Python function that checks whether a given string is a palindrome, ignoring non-alphanumeric characters and case sensitivity.
+</ALEX_QUESTION>
+
+<BOB_RESPONSE>
+def is_palindrome(text):
+    # Filter out non-alphanumeric and convert to lowercase
+    clean = [ch.lower() for ch in text if ch.isalnum()]
+    # Use two-pointer technique to compare characters
+    left, right = 0, len(clean) - 1
+    while left < right:
+        if clean[left] != clean[right]:
+            return False
+        left = left + 1
+        right = right - 1
+
+    return True
+</BOB_RESPONSE>
+
+<FINAL_ANSWER> 
+Sure, here's the function you can use:
+```python
+def is_palindrome(text): 
+    # Filter out non-alphanumeric and convert to lowercase 
+    cleaned = [ch.lower() for ch in text if ch.isalnum()]
+    
+    # Use two-pointer technique to compare characters
+    left, right = 0, len(cleaned) - 1
+    while left < right:
+        if cleaned[left] != cleaned[right]:
+            return False
+        left += 1
+        right -= 1
+
+    return True
+```
+This function works as follows:
+
+Filtering and normalization
+We iterate over each character in the input text, keep only alphanumeric characters (ch.isalnum()), and convert them to lowercase. The result is stored in the list cleaned. This ensures that spaces, punctuation, and case differences don't affect the palindrome check.
+
+Two-pointer comparison
+We initialize two pointers, left at the start of the cleaned list and right at the end. While left is less than right, we compare the characters at these positions:
+
+If they differ, we immediately return False.
+
+Otherwise, we move left one step to the right and right one step to the left.
+
+Returning the result
+If the loop completes without finding any mismatch, all mirrored characters match, and we return True, confirming the string is a palindrome.
+
+This approach runs in O(n) time and uses O(n) additional space for the filtered list, which is efficient for most typical inputs. 
+</FINAL_ANSWER>
+
+<SCORE_EXPLANATION>
+While the explanation is clear, detailed, and follows formatting guidelines, the code in the FINAL_ANSWER has been slightly altered from Bob's original submission (the variable names and comments differ), violating the rule that Bob's code must be included exactly as provided. This is a significant guideline breach, so the score is low despite otherwise strong quality. 
+</SCORE_EXPLANATION>
+
+<SCORE>
+2
+</SCORE>
+</DEMO_EXAMPLE_3>
+
+Finally, here is Alex's question and Bob's response that you must format. The question is enclosed within <ALEX_QUESTION> and </ALEX_QUESTION>, and Bob's response is enclosed within <BOB_RESPONSE> and </BOB_RESPONSE>. Reply only in the format described above, and do not include any additional text or explanations.
+
 <ALEX_QUESTION>
 
 {query}
@@ -187,8 +377,8 @@ def clean_llm_output(output: str) -> str:
 
 def extract_score(output: str) -> int:
     output = clean_llm_output(output)
-    score = re.search(r"<SCORE>(\d+)</SCORE>", output)
-    return int(score.group(1)) if score else 0
+    score = re.search(r"<SCORE>\s*(\d+)\s*</SCORE>", output, flags=re.DOTALL)
+    return int(score.group(1).strip()) if score else 0
 
 
 def extract_final_answer(output: str) -> str:
@@ -214,22 +404,24 @@ def markdownize(cfg: MDConfig):
         seed=cfg.sparams.seed,
     )
     data = datasets.load_dataset(cfg.data.name, trust_remote_code=True)
-    for split in data.keys():
-        for col in [cfg.data.chosen_col, cfg.data.rejected_col]:
-            log.info(f"Processing column: {col}, split: {split}")
-            data[split] = data[split].select(range(100))
-            data[split] = data[split].map(lambda x: create_prompt(x, col))
-            log.info(f"Created {len(data[split])} prompts")
-            md_responses = run_llm(llm, sampling_params, data[split]["prompt"])
-            scores = [extract_score(x) for x in md_responses]
-            final_answers = [extract_final_answer(x) for x in md_responses]
 
-            data[split] = data[split].add_column(f"{col}_md", final_answers)
-            data[split] = data[split].add_column(f"{col}_md_score", scores)
-            data[split] = data[split].remove_columns(["prompt"])
+    log.info(f"Processing column: {cfg.data.col}, cfg.data.split: {cfg.data.split}")
+    data[cfg.data.split] = data[cfg.data.split].select(range(100))
+    data[cfg.data.split] = data[cfg.data.split].map(lambda x: create_prompt(x, cfg.data.col))
+    log.info(f"Created {len(data[cfg.data.split])} prompts")
+    md_responses = run_llm(llm, sampling_params, data[cfg.data.split]["prompt"])
+    scores = [extract_score(x) for x in md_responses]
+    final_answers = [extract_final_answer(x) for x in md_responses]
+
+    data[cfg.data.split] = data[cfg.data.split].add_column(f"{cfg.data.col}_md", final_answers)
+    data[cfg.data.split] = data[cfg.data.split].add_column(f"{cfg.data.col}_md_score", scores)
+    data[cfg.data.split] = data[cfg.data.split].remove_columns(["prompt"])
     ds_short_name = cfg.data.name.split("/")[-1]
     model_short_name = cfg.model.name.split("/")[-1].lower()
-    data.save_to_disk(f"{ds_short_name}-Md-{model_short_name}")
+    save_dir = Path(__file__).parent / f"MD_{ds_short_name}_{model_short_name}/{cfg.data.split}_{cfg.data.col}"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"Saving dataset to {save_dir}")
+    data[cfg.data.split].to_parquet(save_dir)
 
 
 if __name__ == "__main__":
