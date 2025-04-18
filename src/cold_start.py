@@ -123,6 +123,6 @@ for split in ["am_0.9M", "am_0.5M"]:
 # Merge datasets
 merged_dataset = concatenate_datasets(final_datasets)
 # Save to disk as parquet
-save_dir = Path(__file__).parent / "data"
+save_dir = Path(__file__).parent.parent / "data"
 save_dir.mkdir(parents=True, exist_ok=True)
 merged_dataset.to_parquet(save_dir / "cold_start_data.parquet")

@@ -1,12 +1,13 @@
 import logging
 import os
-from pathlib import Path
 
 import hydra
-import wandb
+import torch
 from datasets import Dataset, load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
+import wandb
 from configs.sft_coldstart_config import Config
 
 logging.basicConfig(level=logging.INFO)
@@ -21,8 +22,8 @@ def load_data(data_path: str) -> Dataset:
     return data["train"]
 
 
-def create_splits(data: Dataset, split_ratio: float = 0.8) -> tuple:
-    data = data.shuffle(seed=42).select(range(100))
+def create_splits(data: Dataset, split_ratio: float = 0.9) -> tuple:
+    data = data.shuffle(seed=42)
     train_size = int(len(data) * split_ratio)
     train_data = data.select(range(train_size))
     eval_data = data.select(range(train_size, len(data)))
@@ -35,32 +36,48 @@ def train(cfg: Config):
     train_data, eval_data = create_splits(data)
     log.info(f"Loaded data from {cfg.data.path}")
     log.info(f"Data size: {len(data)}")
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    log.info(f"Using device: {device}. Number of GPUs: {torch.cuda.device_count()}")
+    model = AutoModelForCausalLM.from_pretrained(cfg.sft_params.model_name).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.sft_params.model_name)
+
     config = SFTConfig(
-        output_dir=cfg.sft_params.output_dir,
+        output_dir=f"{cfg.sft_params.output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.sft_params.overwrite_output_dir,
-        evaluation_strategy="epoch",
+        num_train_epochs=cfg.sft_params.num_epochs,
+        eval_strategy="epoch",
+        save_strategy="epoch",
         per_device_train_batch_size=cfg.sft_params.batch_size,
         per_device_eval_batch_size=cfg.sft_params.batch_size,
         gradient_accumulation_steps=cfg.sft_params.gradient_accumulation_steps,
+        bf16=cfg.sft_params.use_bf16,
         learning_rate=cfg.sft_params.learning_rate,
+        lr_scheduler_type=cfg.sft_params.lr_scheduler_type,
         weight_decay=cfg.sft_params.weight_decay,
         warmup_steps=cfg.sft_params.warmup_steps,
-        num_train_epochs=cfg.sft_params.num_epochs,
-        logging_steps=cfg.sft_params.logging_steps,
-        save_steps=cfg.sft_params.save_steps,
         report_to="wandb",
+        log_level=cfg.wandb_params.log_level,
         run_name=cfg.wandb_params.run_name,
+        logging_steps=cfg.sft_params.logging_steps,
+        seed=cfg.sft_params.seed,
+        data_seed=cfg.sft_params.seed,
+        save_total_limit=1,
+        load_best_model_at_end=True,
+        hub_model_id=cfg.sft_params.hub_model_id,
     )
 
     trainer = SFTTrainer(
-        model_name=cfg.sft_config.model_name,
+        model=model,
+        args=config,
         train_dataset=train_data,
         eval_dataset=eval_data,
-        args=config,
+        processing_class=tokenizer,
     )
-    if isinstance(cfg.sft_params.output_dir, Path):
-        cfg.sft_params.output_dir.mkdir(parents=True, exist_ok=True)
     trainer.train()
+    log.info("Training completed.")
+    trainer.save_model(cfg.sft_params.output_dir)
+    trainer.push_to_hub(blocking=True)
     wandb.finish()
     log.info(f"Model trained and saved to {cfg.sft_params.output_dir}")
 
