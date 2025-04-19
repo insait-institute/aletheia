@@ -11,7 +11,7 @@ class Data:
 
 @dataclass
 class SFTParams:
-    model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    model_name: str = "Qwen/Qwen2.5-7B-Instruct"
     model_short_name: str = model_name.split("/")[-1].lower()
     batch_size: int = 8
     num_epochs: int = 3
