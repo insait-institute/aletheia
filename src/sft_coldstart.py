@@ -3,11 +3,11 @@ import os
 
 import hydra
 import torch
+import wandb
 from datasets import Dataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
-import wandb
 from configs.sft_coldstart_config import Config
 
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,7 @@ def load_data(data_path: str) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
-        data = load_dataset(data_path)
+        data = load_dataset(data_path, data_files={"train": "data/train-*"})
     return data["train"]
 
 

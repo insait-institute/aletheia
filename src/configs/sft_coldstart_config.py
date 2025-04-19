@@ -6,7 +6,7 @@ from hydra.core.config_store import ConfigStore
 
 @dataclass
 class Data:
-    path: str = Path(__file__).parent.parent.parent / "data/cold_start_data.parquet"
+    path: str = "wetsoledrysoul/cold_start_data"
 
 
 @dataclass
