@@ -18,7 +18,10 @@ os.environ["WANDB_PROJECT"] = "CodeShield"
 
 
 def load_data(data_path: str) -> Dataset:
-    data = load_dataset("parquet", data_files={"train": data_path})
+    if data_path.endswith(".parquet"):
+        data = load_dataset("parquet", data_files={"train": data_path})
+    else:
+        data = load_dataset(data_path)
     return data["train"]
 
 
