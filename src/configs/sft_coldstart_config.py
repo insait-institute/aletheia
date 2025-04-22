@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from hydra.core.config_store import ConfigStore
 
@@ -7,25 +6,25 @@ from hydra.core.config_store import ConfigStore
 @dataclass
 class Data:
     path: str = "wetsoledrysoul/cold_start_data"
+    split_ratio: float = 0.9
 
 
 @dataclass
 class SFTParams:
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
-    model_short_name: str = model_name.split("/")[-1].lower()
-    batch_size: int = 8
+    batch_size: int = 4
     num_epochs: int = 3
     learning_rate: float = 2e-6
     weight_decay: float = 1e-2
     warmup_steps: int = 1000
     logging_steps: int = 1000
+    max_length: int = 32768
     lr_scheduler_type: str = "cosine"
     gradient_accumulation_steps: int = 4
-    output_dir: str = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
     overwrite_output_dir: bool = True
     seed: int = 42
     use_bf16: bool = True
-    hub_model_id: str = f"CodeShield/{model_short_name}-sft-coldstart"
+    resume_training_if_possible: bool = True
 
 
 @dataclass
