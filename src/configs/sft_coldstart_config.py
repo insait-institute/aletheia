@@ -12,19 +12,20 @@ class Data:
 @dataclass
 class SFTParams:
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
-    batch_size: int = 4
+    batch_size: int = 1
     num_epochs: int = 3
     learning_rate: float = 2e-6
     weight_decay: float = 1e-2
     warmup_steps: int = 1000
-    logging_steps: int = 1000
+    logging_steps: int = 1
     max_length: int = 32768
     lr_scheduler_type: str = "cosine"
-    gradient_accumulation_steps: int = 4
+    gradient_accumulation_steps: int = 256
     overwrite_output_dir: bool = True
     seed: int = 42
     use_bf16: bool = True
     resume_training_if_possible: bool = True
+    deepspeed_config_path: str = "configs/deepspeed_config.json"
 
 
 @dataclass
