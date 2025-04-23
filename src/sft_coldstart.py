@@ -32,7 +32,7 @@ def load_data(data_path: str) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
-        data = load_dataset(data_path, data_files={"train": "data/train-*"})
+        data = load_dataset(data_path)
     return data["train"]
 
 
