@@ -1,9 +1,11 @@
 import logging
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import hydra
 import torch
+import torch.distributed as dist
 from accelerate import PartialState
 from datasets import Dataset, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -12,18 +14,20 @@ from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 import wandb
 from configs.sft_coldstart_config import Config
 
+dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
+
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 wandb.login()
-os.environ["WANDB_LOG_MODEL"] = "checkpoint"
+os.environ["WANDB_LOG_MODEL"] = ""
 os.environ["WANDB_PROJECT"] = "CodeShield"
 device_string = PartialState().process_index
 
 
 def _dicts_to_chatml(example):
     chatml = ""
-    for dct in example:
+    for dct in example["messages"]:
         chatml += f"<|im_start|>{dct['role']}\n{dct['content']}\n<|im_end|>\n"
     return chatml.strip()
 
@@ -96,12 +100,12 @@ def train(cfg: Config):
         logging_steps=cfg.sft_params.logging_steps,
         seed=cfg.sft_params.seed,
         data_seed=cfg.sft_params.seed,
-        save_total_limit=1,
         load_best_model_at_end=True,
         hub_model_id=hub_model_id,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        deepspeed=cfg.sft_params.deepspeed_config_path,
+        # deepspeed=cfg.sft_params.deepspeed_config_path,
+        dataloader_num_workers=4,
     )
 
     model = AutoModelForCausalLM.from_pretrained(cfg.sft_params.model_name, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
