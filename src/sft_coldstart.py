@@ -20,7 +20,6 @@ logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 wandb.login()
-os.environ["WANDB_LOG_MODEL"] = ""
 os.environ["WANDB_PROJECT"] = "CodeShield"
 device_string = PartialState().process_index
 
