@@ -23,7 +23,7 @@ class SFTParams:
     gradient_accumulation_steps: int = 16
     overwrite_output_dir: bool = True
     seed: int = 42
-    use_bf16: bool = False
+    use_bf16: bool = True
     resume_training_if_possible: bool = True
     deepspeed_config_path: str = "configs/deepspeed_config.json"
 
