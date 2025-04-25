@@ -20,10 +20,10 @@ class SFTParams:
     logging_steps: int = 1
     max_length: int = 32768
     lr_scheduler_type: str = "cosine"
-    gradient_accumulation_steps: int = 256
+    gradient_accumulation_steps: int = 16
     overwrite_output_dir: bool = True
     seed: int = 42
-    use_bf16: bool = True
+    use_bf16: bool = False
     resume_training_if_possible: bool = True
     deepspeed_config_path: str = "configs/deepspeed_config.json"
 

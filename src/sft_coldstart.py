@@ -101,10 +101,9 @@ def train(cfg: Config):
         data_seed=cfg.sft_params.seed,
         load_best_model_at_end=True,
         hub_model_id=hub_model_id,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        # gradient_checkpointing=True,
+        # gradient_checkpointing_kwargs={"use_reentrant": False},
         # deepspeed=cfg.sft_params.deepspeed_config_path,
-        dataloader_num_workers=4,
     )
 
     model = AutoModelForCausalLM.from_pretrained(cfg.sft_params.model_name, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
