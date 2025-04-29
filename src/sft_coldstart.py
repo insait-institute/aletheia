@@ -34,7 +34,7 @@ def load_data(data_path: str, max_length: int | None = None) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
-        data = load_dataset(data_path)
+        data = load_dataset(data_path, token=os.getenv("HF_TOKEN"))
     data = data["train"]
     if max_length:
         data = data.filter(lambda x: x["num_tokens"] <= max_length)
@@ -99,6 +99,7 @@ def train(cfg: Config):
         per_device_eval_batch_size=cfg.sft_params.batch_size,
         gradient_accumulation_steps=cfg.sft_params.gradient_accumulation_steps,
         bf16=cfg.sft_params.use_bf16,
+        tp_size=cfg.sft_params.tp_size,
         bf16_full_eval=cfg.sft_params.use_bf16,
         learning_rate=cfg.sft_params.learning_rate,
         lr_scheduler_type=cfg.sft_params.lr_scheduler_type,

@@ -19,6 +19,7 @@ class SFTParams:
     warmup_steps: int = 1000
     logging_steps: int = 1
     max_length: int = 8192
+    tp_size: int = 16
     lr_scheduler_type: str = "linear"
     gradient_accumulation_steps: int = 1
     overwrite_output_dir: bool = True
