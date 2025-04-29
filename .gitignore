@@ -4,5 +4,5 @@ mambafpcox5lxznt
 **/outputs/*-*-*
 **/test.py
 **/wandb
-**/flops_profile
+**/flops_profile*
 **/cleanup.py

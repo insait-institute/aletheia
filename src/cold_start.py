@@ -100,13 +100,33 @@
 # if __name__ == "__main__":
 #     cold_start()
 
-from pathlib import Path
 
-from datasets import Features, Value, concatenate_datasets, load_dataset
+import tiktoken
+from datasets import DatasetDict, Features, Value, concatenate_datasets, load_dataset
 
 
-def simplify_messages(example):
+def num_tokens_from_messages(messages):
+    encoding = tiktoken.get_encoding("o200k_base")
+    tokens_per_message = 3
+    tokens_per_name = 1
+    num_tokens = 0
+    for message in messages:
+        num_tokens += tokens_per_message
+        for key, value in message.items():
+            if value is None:
+                continue
+            num_tokens += len(encoding.encode(value, disallowed_special=()))
+            if key == "name":
+                num_tokens += tokens_per_name
+    num_tokens += 3
+    return num_tokens
+
+
+def simplify_messages(example, split):
+    example["original_source"] = example["messages"][0]["info"]["source"]
     example["messages"] = [{"role": msg["role"], "content": msg["content"]} for msg in example["messages"]]
+    example["num_tokens"] = num_tokens_from_messages(example["messages"])
+    example["am_source"] = split
     return example
 
 
@@ -117,12 +137,11 @@ features = Features(
 
 for split in ["am_0.9M", "am_0.5M"]:
     data = load_dataset("a-m-team/AM-DeepSeek-R1-Distilled-1.4M", split, features=features)["train"]
-    data = data.map(simplify_messages)
+    data = data.map(simplify_messages, fn_kwargs={"split": split})
     final_datasets.append(data)
 
 # Merge datasets
 merged_dataset = concatenate_datasets(final_datasets)
-# Save to disk as parquet
-save_dir = Path(__file__).parent.parent / "data"
-save_dir.mkdir(parents=True, exist_ok=True)
-merged_dataset.to_parquet(save_dir / "cold_start_data.parquet")
+
+data = DatasetDict({"train": merged_dataset})
+data.push_to_hub("wetsoledrysoul/cold_start_data", private=True)
