@@ -1,26 +1,27 @@
 import logging
 import os
-from datetime import timedelta
+# from datetime import timedelta
 from pathlib import Path
 
 import hydra
-import torch
-import torch.distributed as dist
+
+# import torch.distributed as dist
 from accelerate import PartialState
 from datasets import Dataset, load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 
 import wandb
 from configs.sft_coldstart_config import Config
 
-dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
+# dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 wandb.login()
 os.environ["WANDB_PROJECT"] = "CodeShield"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 device_string = PartialState().process_index
 
 
@@ -31,16 +32,20 @@ def _dicts_to_chatml(example):
     return chatml.strip()
 
 
-def load_data(data_path: str) -> Dataset:
+def load_data(data_path: str, max_length: int | None = None) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
         data = load_dataset(data_path)
-    return data["train"]
+    data = data["train"]
+    if max_length:
+        data = data.filter(lambda x: x["num_tokens"] <= max_length)
+    data = data.sort("num_tokens", reverse=True)
+    return data
 
 
 def create_splits(data: Dataset, split_ratio: float) -> tuple:
-    data = data.shuffle(seed=42)
+    # data = data.shuffle(seed=42)
     train_size = int(len(data) * split_ratio)
     train_data = data.select(range(train_size))
     eval_data = data.select(range(train_size, len(data)))
@@ -65,11 +70,16 @@ def train(cfg: Config):
     model_short_name = cfg.sft_params.model_name.split("/")[-1].lower()
     output_dir = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
     hub_model_id = f"CodeShield/{model_short_name}-sft"
-    data = load_data(cfg.data.path)
+    data = load_data(cfg.data.path, max_length=cfg.sft_params.max_length)
     train_data, eval_data = create_splits(data, cfg.data.split_ratio)
 
     log.info(f"Loaded data from {cfg.data.path}")
+    if cfg.sft_params.max_length:
+        log.info(f"Filtered data to max length {cfg.sft_params.max_length}")
     log.info(f"Data size: {len(data)}")
+    log.info(f"Train size: {len(train_data)}")
+    log.info(f"Eval size: {len(eval_data)}")
+    log.info(f"Output directory: {output_dir}")
 
     # Updated model loading to use explicit BF16 tensor type
     checkpoint = check_valid_checkpoint(f"{output_dir}/intermediate_checkpoints")
@@ -77,6 +87,7 @@ def train(cfg: Config):
         log.info(f"Resuming training from checkpoint: {checkpoint}")
 
     config = SFTConfig(
+        model_init_kwargs={"attn_implementation": "flash_attention_2"},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None,
         overwrite_output_dir=cfg.sft_params.overwrite_output_dir,
@@ -95,6 +106,7 @@ def train(cfg: Config):
         warmup_steps=cfg.sft_params.warmup_steps,
         report_to="wandb",
         log_level=cfg.wandb_params.log_level,
+        log_on_each_node=False,
         run_name=cfg.wandb_params.run_name,
         logging_steps=cfg.sft_params.logging_steps,
         seed=cfg.sft_params.seed,
@@ -103,17 +115,21 @@ def train(cfg: Config):
         hub_model_id=hub_model_id,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        # deepspeed=cfg.sft_params.deepspeed_config_path,
+        dataloader_num_workers=16,
+        remove_unused_columns=True,
+        ddp_backend="nccl",
+        ddp_timeout=36000,
+        deepspeed=cfg.sft_params.deepspeed_config_path,
     )
 
-    model = AutoModelForCausalLM.from_pretrained(cfg.sft_params.model_name, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
+    # model = AutoModelForCausalLM.from_pretrained(cfg.sft_params.model_name, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2")
     tokenizer = AutoTokenizer.from_pretrained(cfg.sft_params.model_name)
 
     response_template = "<|im_start|>assistant\n"
     collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
 
     trainer = SFTTrainer(
-        model=model,
+        model=cfg.sft_params.model_name,
         args=config,
         train_dataset=train_data,
         eval_dataset=eval_data,
@@ -125,7 +141,7 @@ def train(cfg: Config):
     trainer.train(resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None)
     log.info("Training completed.")
     trainer.save_model(output_dir)
-    trainer.push_to_hub(blocking=True)
+    trainer.push_to_hub()
     wandb.finish()
     log.info(f"Model trained and saved to {output_dir}")
 
