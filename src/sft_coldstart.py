@@ -1,11 +1,11 @@
 import logging
 import os
-# from datetime import timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import hydra
-
-# import torch.distributed as dist
+import torch
+import torch.distributed as dist
 from accelerate import PartialState
 from datasets import Dataset, load_dataset
 from transformers import AutoTokenizer
@@ -13,8 +13,6 @@ from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 
 import wandb
 from configs.sft_coldstart_config import Config
-
-# dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -80,6 +78,8 @@ def train(cfg: Config):
     log.info(f"Train size: {len(train_data)}")
     log.info(f"Eval size: {len(eval_data)}")
     log.info(f"Output directory: {output_dir}")
+    log.info(f"Number of CPUs: {os.cpu_count()}")
+    log.info(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Updated model loading to use explicit BF16 tensor type
     checkpoint = check_valid_checkpoint(f"{output_dir}/intermediate_checkpoints")
@@ -87,7 +87,7 @@ def train(cfg: Config):
         log.info(f"Resuming training from checkpoint: {checkpoint}")
 
     config = SFTConfig(
-        model_init_kwargs={"attn_implementation": "flash_attention_2"},
+        model_init_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.bfloat16},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None,
         overwrite_output_dir=cfg.sft_params.overwrite_output_dir,
@@ -115,7 +115,7 @@ def train(cfg: Config):
         hub_model_id=hub_model_id,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        dataloader_num_workers=16,
+        dataloader_num_workers=os.cpu_count(),
         remove_unused_columns=True,
         ddp_backend="nccl",
         ddp_timeout=36000,
@@ -138,6 +138,7 @@ def train(cfg: Config):
     )
 
     # Start training with explicit checkpoint resumption
+    dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
     trainer.train(resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None)
     log.info("Training completed.")
     trainer.save_model(output_dir)

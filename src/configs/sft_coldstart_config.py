@@ -5,7 +5,7 @@ from hydra.core.config_store import ConfigStore
 
 @dataclass
 class Data:
-    path: str = "wetsoledrysoul/cold_start_data"
+    path: str = "CodeShield/cold_start_data"
     split_ratio: float = 0.9
 
 
