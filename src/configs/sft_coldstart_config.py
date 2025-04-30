@@ -7,7 +7,7 @@ from hydra.core.config_store import ConfigStore
 class Data:
     path: str = "CodeShield/cold_start_data"
     split_ratio: float = 0.9
-    subset: int | float = 10000
+    subset: int | float = 1.0
 
 
 @dataclass
