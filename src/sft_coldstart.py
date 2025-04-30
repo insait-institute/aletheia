@@ -14,6 +14,7 @@ from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 import wandb
 from configs.sft_coldstart_config import Config
 
+dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -65,6 +66,8 @@ def check_valid_checkpoint(output_dir: str) -> bool | str:
 
 @hydra.main(version_base=None, config_name="sft_coldstart_config")
 def train(cfg: Config):
+    cpu_count = os.cpu_count()
+    gpu_count = torch.cuda.device_count()
     model_short_name = cfg.sft_params.model_name.split("/")[-1].lower()
     output_dir = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
     hub_model_id = f"CodeShield/{model_short_name}-sft"
@@ -78,8 +81,8 @@ def train(cfg: Config):
     log.info(f"Train size: {len(train_data)}")
     log.info(f"Eval size: {len(eval_data)}")
     log.info(f"Output directory: {output_dir}")
-    log.info(f"Number of CPUs: {os.cpu_count()}")
-    log.info(f"Number of GPUs: {torch.cuda.device_count()}")
+    log.info(f"Number of CPUs: {cpu_count}")
+    log.info(f"Number of GPUs: {gpu_count}")
 
     # Updated model loading to use explicit BF16 tensor type
     checkpoint = check_valid_checkpoint(f"{output_dir}/intermediate_checkpoints")
@@ -116,8 +119,9 @@ def train(cfg: Config):
         hub_model_id=hub_model_id,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        dataloader_num_workers=os.cpu_count(),
+        dataloader_num_workers=cpu_count // gpu_count,
         remove_unused_columns=True,
+        dataloader_drop_last=True,
         ddp_backend="nccl",
         ddp_timeout=36000,
         deepspeed=cfg.sft_params.deepspeed_config_path,
@@ -139,7 +143,6 @@ def train(cfg: Config):
     )
 
     # Start training with explicit checkpoint resumption
-    dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
     trainer.train(resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None)
     log.info("Training completed.")
     trainer.save_model(output_dir)
