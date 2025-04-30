@@ -31,20 +31,22 @@ def _dicts_to_chatml(example):
     return chatml.strip()
 
 
-def load_data(data_path: str, max_length: int | None = None) -> Dataset:
+def load_data(data_path: str, max_length: int | None, subset: int | float) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
         data = load_dataset(data_path, token=os.getenv("HF_TOKEN"))
-    data = data["train"]
+    data = data["train"].shuffle(seed=42)
     if max_length:
         data = data.filter(lambda x: x["num_tokens"] <= max_length)
-    data = data.sort("num_tokens", reverse=True)
+    if subset:
+        if isinstance(subset, float):
+            subset = int(len(data) * subset)
+        data = data.select(range(subset))
     return data
 
 
 def create_splits(data: Dataset, split_ratio: float) -> tuple:
-    # data = data.shuffle(seed=42)
     train_size = int(len(data) * split_ratio)
     train_data = data.select(range(train_size))
     eval_data = data.select(range(train_size, len(data)))
@@ -70,8 +72,12 @@ def train(cfg: Config):
     gpu_count = torch.cuda.device_count()
     model_short_name = cfg.sft_params.model_name.split("/")[-1].lower()
     output_dir = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
-    hub_model_id = f"CodeShield/{model_short_name}-sft"
-    data = load_data(cfg.data.path, max_length=cfg.sft_params.max_length)
+    hub_model_id = f"CodeShield/sft-{model_short_name}"
+    if not cfg.data.subset == 1.0:
+        output_dir += f"_subset{cfg.data.subset}"
+        hub_model_id += f"-subset{cfg.data.subset}"
+
+    data = load_data(cfg.data.path, cfg.sft_params.max_length, cfg.data.subset)
     train_data, eval_data = create_splits(data, cfg.data.split_ratio)
 
     log.info(f"Loaded data from {cfg.data.path}")
