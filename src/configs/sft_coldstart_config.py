@@ -12,16 +12,16 @@ class Data:
 @dataclass
 class SFTParams:
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
-    batch_size: int = 1
+    batch_size: int = 4
     num_epochs: int = 3
     learning_rate: float = 2e-5
     weight_decay: float = 1e-2
     warmup_steps: int = 1000
     logging_steps: int = 1
     max_length: int = 8192
-    tp_size: int = 16
-    lr_scheduler_type: str = "linear"
-    gradient_accumulation_steps: int = 1
+    tp_size: int = 0
+    lr_scheduler_type: str = "cosine"
+    gradient_accumulation_steps: int = 16
     overwrite_output_dir: bool = True
     seed: int = 42
     use_bf16: bool = True
