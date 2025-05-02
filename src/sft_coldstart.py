@@ -152,7 +152,7 @@ def train(cfg: Config):
     trainer.train(resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None)
     log.info("Training completed.")
     trainer.save_model(output_dir)
-    trainer.push_to_hub()
+    trainer.push_to_hub(private=True)
     wandb.finish()
     log.info(f"Model trained and saved to {output_dir}")
 
