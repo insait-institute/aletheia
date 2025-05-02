@@ -1,8 +1,9 @@
 **/__pycache__
 **/.vscode
 mambafpcox5lxznt
-**/outputs/*-*-*
+**/*output*
 **/test.py
 **/wandb
 **/flops_profile*
 **/cleanup.py
+**/.cache
