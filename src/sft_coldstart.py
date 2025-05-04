@@ -31,18 +31,12 @@ def _dicts_to_chatml(example):
     return chatml.strip()
 
 
-def load_data(data_path: str, max_length: int | None, subset: int | float) -> Dataset:
+def load_data(data_path: str) -> Dataset:
     if data_path.endswith(".parquet"):
         data = load_dataset("parquet", data_files={"train": data_path})
     else:
-        data = load_dataset(data_path, token=os.getenv("HF_TOKEN"))
+        data = load_dataset(data_path)
     data = data["train"].shuffle(seed=42)
-    if max_length:
-        data = data.filter(lambda x: x["num_tokens"] <= max_length)
-    if subset:
-        if isinstance(subset, float):
-            subset = int(len(data) * subset)
-        data = data.select(range(subset))
     return data
 
 
@@ -73,11 +67,8 @@ def train(cfg: Config):
     model_short_name = cfg.sft_params.model_name.split("/")[-1].lower()
     output_dir = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
     hub_model_id = f"CodeShield/sft-{model_short_name}"
-    if not cfg.data.subset == 1.0:
-        output_dir += f"_subset{cfg.data.subset}"
-        hub_model_id += f"-subset{cfg.data.subset}"
 
-    data = load_data(cfg.data.path, cfg.sft_params.max_length, cfg.data.subset)
+    data = load_data(cfg.data.path)
     train_data, eval_data = create_splits(data, cfg.data.split_ratio)
 
     log.info(f"Loaded data from {cfg.data.path}")
@@ -112,6 +103,7 @@ def train(cfg: Config):
         bf16_full_eval=cfg.sft_params.use_bf16,
         learning_rate=cfg.sft_params.learning_rate,
         lr_scheduler_type=cfg.sft_params.lr_scheduler_type,
+        lr_scheduler_kwargs=cfg.sft_params.lr_scheduler_kwargs,
         weight_decay=cfg.sft_params.weight_decay,
         warmup_steps=cfg.sft_params.warmup_steps,
         report_to="wandb",
@@ -123,6 +115,7 @@ def train(cfg: Config):
         data_seed=cfg.sft_params.seed,
         load_best_model_at_end=True,
         hub_model_id=hub_model_id,
+        hub_private_repo=True,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         dataloader_num_workers=cpu_count // gpu_count,
@@ -152,8 +145,7 @@ def train(cfg: Config):
     trainer.train(resume_from_checkpoint=checkpoint if cfg.sft_params.resume_training_if_possible else None)
     log.info("Training completed.")
     trainer.save_model(output_dir)
-    trainer.push_to_hub(private=True)
-    wandb.finish()
+    trainer.push_to_hub()
     log.info(f"Model trained and saved to {output_dir}")
 
 

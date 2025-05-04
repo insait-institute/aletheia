@@ -5,9 +5,8 @@ from hydra.core.config_store import ConfigStore
 
 @dataclass
 class Data:
-    path: str = "CodeShield/cold_start_data"
+    path: str = "CodeShield/cold_start_data_indiv_dedup"
     split_ratio: float = 0.9
-    subset: int | float = 1.0
 
 
 @dataclass
@@ -15,13 +14,14 @@ class SFTParams:
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
     batch_size: int = 4
     num_epochs: int = 3
-    learning_rate: float = 2e-5
+    learning_rate: float = 1e-4
     weight_decay: float = 1e-2
-    warmup_steps: int = 1000
+    warmup_steps: int = 0
     logging_steps: int = 1
-    max_length: int = 8192
+    max_length: int = 4096
     tp_size: int = 0
-    lr_scheduler_type: str = "cosine"
+    lr_scheduler_type: str = "cosine_with_min_lr"
+    lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
     gradient_accumulation_steps: int = 16
     overwrite_output_dir: bool = True
     seed: int = 42
