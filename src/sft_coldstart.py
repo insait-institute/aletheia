@@ -28,6 +28,10 @@ def _dicts_to_chatml(example):
     chatml = ""
     for dct in example["messages"]:
         chatml += f"<|im_start|>{dct['role']}\n{dct['content']}\n<|im_end|>\n"
+    chatml = chatml.replace("<think>", "<reason>")
+    chatml = chatml.replace("</think>", "</reason>")
+    chatml = chatml.replace("<answer>", "<response>")
+    chatml = chatml.replace("</answer>", "</response>")
     return chatml.strip()
 
 
@@ -41,6 +45,8 @@ def load_data(data_path: str) -> Dataset:
 
 
 def create_splits(data: Dataset, split_ratio: float) -> tuple:
+    if split_ratio == 1.0:
+        return data, None
     train_size = int(len(data) * split_ratio)
     train_data = data.select(range(train_size))
     eval_data = data.select(range(train_size, len(data)))
@@ -76,7 +82,7 @@ def train(cfg: Config):
         log.info(f"Filtered data to max length {cfg.sft_params.max_length}")
     log.info(f"Data size: {len(data)}")
     log.info(f"Train size: {len(train_data)}")
-    log.info(f"Eval size: {len(eval_data)}")
+    log.info(f"Eval size: {len(eval_data) if eval_data else 'N/A'}")
     log.info(f"Output directory: {output_dir}")
     log.info(f"Number of CPUs: {cpu_count}")
     log.info(f"Number of GPUs: {gpu_count}")

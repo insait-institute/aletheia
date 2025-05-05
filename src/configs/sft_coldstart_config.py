@@ -6,7 +6,7 @@ from hydra.core.config_store import ConfigStore
 @dataclass
 class Data:
     path: str = "CodeShield/cold_start_data_indiv_dedup"
-    split_ratio: float = 0.9
+    split_ratio: float = 1.0
 
 
 @dataclass
