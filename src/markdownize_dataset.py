@@ -99,12 +99,6 @@ def clean_llm_output(output: str) -> str:
     return output
 
 
-def extract_score(output: str) -> int:
-    output = clean_llm_output(output)
-    score = re.search(r"<SCORE>\s*(\d+)\s*</SCORE>", output, flags=re.DOTALL)
-    return int(score.group(1).strip()) if score else 0
-
-
 def extract_final_answer(output: str) -> str:
     output = clean_llm_output(output)
     final_answer = re.search(r"<FINAL_ANSWER>(.*?)</FINAL_ANSWER>", output, flags=re.DOTALL)
@@ -134,11 +128,9 @@ def markdownize(cfg: MDConfig):
     data[cfg.data.split] = data[cfg.data.split].map(lambda x: create_prompt(x, cfg.data.col))
     log.info(f"Created {len(data[cfg.data.split])} prompts")
     md_responses = run_llm(llm, sampling_params, data[cfg.data.split]["prompt"])
-    scores = [extract_score(x) for x in md_responses]
     final_answers = [extract_final_answer(x) for x in md_responses]
 
     data[cfg.data.split] = data[cfg.data.split].add_column(f"{cfg.data.col}_md", final_answers)
-    data[cfg.data.split] = data[cfg.data.split].add_column(f"{cfg.data.col}_md_score", scores)
     data[cfg.data.split] = data[cfg.data.split].remove_columns(["prompt"])
     ds_short_name = cfg.data.name.split("/")[-1]
     model_short_name = cfg.model.name.split("/")[-1].lower()
