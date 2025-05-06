@@ -27,29 +27,6 @@ with warnings.catch_warnings():
     from scipy.integrate import quad as integrate
     from tqdm import tqdm
 
-MATH_SOURCES = [
-    "limo",
-    "MATH_metamathQA",
-    "MATH-lighteval",
-    "MetaMathQA",
-    "MATH_numina",
-    "NuminaMath_1.5",
-    "MATH_metamathQA",
-    "openR1Math_extended",
-    "openR1Math_default",
-    "data_ablation_full59K",
-    "PRIME",
-    "s1K-1.1",
-    "aime",
-    "Omni-MATH",
-    "prime",
-    "openThoughts_other",
-    "openThoughts",
-]
-CODE_SOURCES = ["KodCode", "OpenCoder", "evol-en", "OpenCoderStage2", "codeio", "evol-zh"]
-OTHER_SOURCES = ["Bespoke17k", "nautralreasoning", "InfinityInstruct", "openorca", "GeneralThought-Feb25", "Dolphin-R1", "dolphin_R1_other"]
-ALL_SOURCES = CODE_SOURCES + MATH_SOURCES + OTHER_SOURCES
-category_map = {"code": CODE_SOURCES, "math": MATH_SOURCES, "other": OTHER_SOURCES, "all": ALL_SOURCES}
 
 SEED = 42
 NON_ALPHA = re.compile("[^A-Za-z_0-9]")
@@ -256,6 +233,7 @@ if __name__ == "__main__":
         filter_parallelism: int = typer.Option(8, help="Number of processes to spawn for the filter stage"),
         num_samples: int = typer.Option(None, help="Number of dataset samples to randomly subset for processing"),
         category: str = typer.Option("code", help="Category of the dataset: 'code', 'math','other', or 'all"),
+        load_from_disk: bool = typer.Option(False, help="Load dataset from disk"),
     ):
         global uf
         OUTPUT_BASE = Path(output or "output")
@@ -272,18 +250,21 @@ if __name__ == "__main__":
         HASH_TABLES = [defaultdict(set) for _ in range(B)]
 
         time_measures["load_dataset"] = time.time()
-        ds = load_dataset(
-            dataset,
-            config,
-            data_dir=data_dir,
-            split=split,
-            cache_dir=cache_dir,
-            revision=revision,
-            num_proc=os.cpu_count(),
-        )
+        if load_from_disk:
+            ds = datasets.load_from_disk(dataset)
+        else:
+            ds = load_dataset(
+                dataset,
+                config,
+                data_dir=data_dir,
+                split=split,
+                cache_dir=cache_dir,
+                revision=revision,
+                num_proc=os.cpu_count(),
+            )
         # filter dataset by categories
         ds = ds.filter(
-            function=lambda x: x["original_source"] in category_map[category],
+            function=lambda x: x["category"] == category,
             num_proc=map_parallelism,
             desc="Filtering categories...",
         )
