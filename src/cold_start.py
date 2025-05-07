@@ -3,6 +3,7 @@ import os
 import sys
 from collections import Counter
 
+import numpy as np
 import tiktoken
 from datasets import Features, Value, concatenate_datasets, load_dataset
 from lingua import Language, LanguageDetectorBuilder
@@ -17,6 +18,8 @@ CHATML = """<|im_start|>user
 {answer}
 <|im_end|>
 """
+languages = [Language.ENGLISH, Language.CHINESE, Language.HINDI, Language.SPANISH, Language.ARABIC, Language.FRENCH, Language.RUSSIAN, Language.GERMAN]
+detector = LanguageDetectorBuilder.from_languages(*languages).build()
 
 
 def num_tokens_from_string(string: str) -> int:
@@ -31,6 +34,27 @@ def construct_messages(example):
     example["messages"] = CHATML.format(question=example["question"], answer=example["answer"])
     example["num_tokens"] = num_tokens_from_string(example["messages"])
     return example
+
+
+def language_filter(example):
+    english_confidence = detector.compute_language_confidence(example["messages"], Language.ENGLISH)
+    return english_confidence >= 0.99
+
+
+def length_filter(example):
+    return example["num_tokens"] <= 4096
+
+
+def variabilty_filter(example):
+    return example["variabilty"] >= 0.05
+
+
+def correctness_filter(example):
+    if example["category"] == "science":
+        return example["verify_score"] > 4.99
+    elif example["category"] == "other":
+        return example["verify_score"] > 0.7
+    return example["verify_score"] > 0.99
 
 
 def main(model_name):
@@ -53,51 +77,50 @@ def main(model_name):
         }
     )
 
-    splits_r1 = [
-        "code_r1_1pass.jsonl",
-        "code_r1_2pass.jsonl",
-        "code_r1_3pass.jsonl",
-        "code_r1_4pass.jsonl",
-        "math_r1_1pass.jsonl",
-        "math_r1_2pass.jsonl",
-        "math_r1_3pass.jsonl",
-        "math_r1_4pass.jsonl",
-        "science_r1_1pass.jsonl",
-        "science_r1_2pass.jsonl",
-        "science_r1_3pass.jsonl",
-        "science_r1_4pass.jsonl",
-        "if_r1_1pass.jsonl",
-        "if_r1_2pass.jsonl",
-        "if_r1_3pass.jsonl",
-        "if_r1_4pass.jsonl",
-        "other_r1_1pass.jsonl",
-        "other_r1_2pass.jsonl",
-        "other_r1_3pass.jsonl",
-        "other_r1_4pass.jsonl",
-    ]
+    splits = {
+        "code": [f"code_{model_name}_{i}pass.jsonl" for i in range(1, 5)],
+        "math": [f"math_{model_name}_{i}pass.jsonl" for i in range(1, 5)],
+        "instruction follow": [f"if_{model_name}_{i}pass.jsonl" for i in range(1, 5)],
+        "science": [f"science_{model_name}_{i}pass.jsonl" for i in range(1, 5)],
+        "other": [f"other_{model_name}_{i}pass.jsonl" for i in range(1, 5)],
+    }
 
-    splits_7b = [x.replace("r1", "7b") for x in splits_r1]
-    splits = splits_r1 if model_name == "r1" else splits_7b
-    data = []
-    for split in tqdm(splits, desc="Processing splits", total=len(splits)):
-        ds = load_dataset("a-m-team/AM-DeepSeek-Distilled-40M", data_files={"train": split}, split="train", features=features)
-        ds = ds.map(construct_messages, remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"], num_proc=os.cpu_count())
-        data_len = len(ds)
-        ds = ds.filter(lambda x: x["num_tokens"] <= 4096 and x["verify_score"] == 1, num_proc=os.cpu_count())
-        filtered_percent = (data_len - len(ds)) / data_len * 100
-        log.info(f"Filtering removed {data_len - len(ds)} examples ({filtered_percent:.2f}%)")
-        data.append(ds)
+    full_dataset = []
+    for category in ["code", "math", "instruction follow", "science", "other"]:
+        category_ds = []
+        for split in tqdm(splits[category], desc=f"Processing category: {category}", total=len(splits[category])):
+            ds = load_dataset("a-m-team/AM-DeepSeek-Distilled-40M", data_files={"train": split}, split="train", features=features)
+            ds = ds.map(construct_messages, remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"], num_proc=os.cpu_count())
+            ds = ds.add_column("query_id", [i for i in range(len(ds))])
+            category_ds.append(ds)
+        category_ds = concatenate_datasets(category_ds)
 
-    data = concatenate_datasets(data)
-    languages = [Language.ENGLISH, Language.CHINESE, Language.HINDI, Language.SPANISH, Language.ARABIC, Language.FRENCH, Language.RUSSIAN, Language.GERMAN]
-    detector = LanguageDetectorBuilder.from_languages(*languages).build()
-    english_confidence = detector.compute_language_confidence_in_parallel(data["messages"], Language.ENGLISH)
-    english_confidence = [i for i, conf in enumerate(english_confidence) if conf >= 0.99]
-    data = data.select(english_confidence)
+        query_scores = {}
+        for example in category_ds:
+            query_id = example["query_id"]
+            if query_id not in query_scores:
+                query_scores[query_id] = []
+            query_scores[query_id].append(example["verify_score"])
 
-    data.save_to_disk(f"../data/cold_start_predupe_{model_name}")
-    log.info(f"Total examples after filtering: {len(data)}")
-    log.info(f"Distribution of categories: {Counter(data['category'])}")
+        variability_map = {}
+        for query_id, scores in query_scores.items():
+            scores_array = np.array(scores)
+            mean = np.mean(scores_array)
+            if mean > 0:
+                variability_map[query_id] = np.std(scores_array) / mean
+            else:
+                variability_map[query_id] = 0
+
+        category_ds = category_ds.map(lambda example: {"variability": variability_map.get(example["query_id"], 0)}, num_proc=os.cpu_count())
+
+        ds = ds.filter(lambda x: length_filter(x) and correctness_filter(x) and language_filter(x), num_proc=os.cpu_count())
+        full_dataset.append(ds)
+
+    full_dataset = concatenate_datasets(full_dataset)
+    full_dataset.save_to_disk(f"../data/cold_start_predupe_{model_name}")
+    log.info(f"Total examples after filtering: {len(full_dataset)}")
+    log.info(f"Distribution of categories: {Counter(full_dataset['category'])}")
+    log.info(f"Columns in the dataset: {full_dataset.column_names}")
 
 
 if __name__ == "__main__":

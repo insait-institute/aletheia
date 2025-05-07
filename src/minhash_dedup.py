@@ -187,31 +187,25 @@ def optimal_param(
 
 class UnionFind:
     def __init__(self):
-        self.parent: Dict[int, int] = {}
+        self.parent = {}
+        self.rank = {}
 
     def find(self, x):
-        if x not in self.parent:
-            self.parent[x] = x
-        if self.parent[x] != x:
+        if self.parent.get(x, x) != x:
             self.parent[x] = self.find(self.parent[x])
-        return self.parent[x]
+        return self.parent.get(x, x)
 
     def union(self, x, y):
-        px = self.find(x)
-        py = self.find(y)
-        self.parent[px] = self.parent[py] = min(px, py)
-
-
-def _chatml_to_prompt_string(messages):
-    chatml = ""
-    for dct in messages:
-        chatml += f"<|im_start|>{dct['role']}\n{dct['content']}\n<|im_end|>\n"
-    return chatml.strip()
-
-
-def chatml_column(example):
-    example["content"] = _chatml_to_prompt_string(example["messages"])
-    return example
+        xroot = self.find(x)
+        yroot = self.find(y)
+        if xroot == yroot:
+            return
+        if self.rank.get(xroot, 0) < self.rank.get(yroot, 0):
+            self.parent[xroot] = yroot
+        else:
+            self.parent[yroot] = xroot
+            if self.rank.get(xroot, 0) == self.rank.get(yroot, 0):
+                self.rank[xroot] = self.rank.get(xroot, 0) + 1
 
 
 if __name__ == "__main__":
@@ -238,7 +232,7 @@ if __name__ == "__main__":
         global uf
         OUTPUT_BASE = Path(output or "output")
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
-        output = OUTPUT_BASE / f"deduplicated_{category}"
+        output = OUTPUT_BASE / f"deduplicated_{category.replace(' ', '_')}"
 
         logging.basicConfig(level=logging.INFO)
 
@@ -264,11 +258,11 @@ if __name__ == "__main__":
             )
         # filter dataset by categories
         ds = ds.filter(
-            function=lambda x: x["category"] == category,
-            num_proc=map_parallelism,
+            function=lambda x: x["category"],
+            num_proc=os.cpu_count(),
             desc="Filtering categories...",
         )
-        ds = ds.map(chatml_column, num_proc=map_parallelism, desc="Processing ChatML column...")
+
         time_measures["load_dataset"] = time.time() - time_measures["load_dataset"]
         if num_samples:
             if num_samples < len(ds):
@@ -297,14 +291,14 @@ if __name__ == "__main__":
             },
             input_columns=[column],
             remove_columns=ds.column_names,
-            num_proc=map_parallelism,
+            num_proc=os.cpu_count(),
             with_indices=True,
             desc="Fingerprinting...",
         )
         time_measures["minhash"] = time.time() - time_measures["minhash"]
 
         time_measures["clustering"] = time.time()
-        batch_size: int = 10000
+        batch_size: int = 2000
         for i in tqdm(
             range(0, len(embedded), batch_size),
             dynamic_ncols=True,
@@ -312,8 +306,12 @@ if __name__ == "__main__":
         ):
             batch = embedded[i : i + batch_size]
             for key, Hs in zip(batch["__id__"], batch["__signatures__"]):
+                MAX_BUCKET_SIZE = 1000
                 for H, hashtable in zip(Hs, HASH_TABLES):
-                    hashtable[H].add(key)
+                    bucket = hashtable[H]
+                    if len(bucket) < MAX_BUCKET_SIZE:
+                        bucket.add(key)
+
         for table in tqdm(HASH_TABLES, dynamic_ncols=True, desc="Clustering..."):
             for cluster in table.values():
                 if len(cluster) <= 1:
@@ -329,7 +327,7 @@ if __name__ == "__main__":
         ds = ds.map(
             function=lambda _, idx: {"__cluster__": uf.find(idx)},
             with_indices=True,
-            num_proc=map_parallelism,
+            num_proc=os.cpu_count(),
             new_fingerprint=str(random.getrandbits(128)),
             desc="Finding clusters...",
         )
@@ -341,7 +339,7 @@ if __name__ == "__main__":
         final_data = ds.filter(
             function=lambda record, idx: record["__cluster__"] == idx,
             with_indices=True,
-            num_proc=filter_parallelism,
+            num_proc=os.cpu_count(),
             desc="Filtering clusters...",
         )
         time_measures["filtering"] = time.time() - time_measures["filtering"]
