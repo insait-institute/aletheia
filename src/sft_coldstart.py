@@ -111,7 +111,7 @@ def train(cfg: Config):
         lr_scheduler_type=cfg.sft_params.lr_scheduler_type,
         lr_scheduler_kwargs=cfg.sft_params.lr_scheduler_kwargs,
         weight_decay=cfg.sft_params.weight_decay,
-        warmup_steps=cfg.sft_params.warmup_steps,
+        warmup_ratio=cfg.sft_params.warmup_ratio,
         report_to="wandb",
         log_level=cfg.wandb_params.log_level,
         log_on_each_node=False,

@@ -16,7 +16,7 @@ class SFTParams:
     num_epochs: int = 3
     learning_rate: float = 1e-4
     weight_decay: float = 1e-2
-    warmup_steps: int = 0
+    warmup_ratio: float = 0.05
     logging_steps: int = 1
     max_length: int = 4096
     tp_size: int = 0
