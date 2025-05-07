@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from collections import Counter
+from typing import Dict
 
 import numpy as np
 import tiktoken
@@ -23,33 +24,37 @@ detector = LanguageDetectorBuilder.from_languages(*languages).build()
 
 
 def num_tokens_from_string(string: str) -> int:
-    """Returns the number of tokens in a text string."""
     encoding = tiktoken.get_encoding("o200k_base")
     num_tokens = len(encoding.encode(string, disallowed_special=()))
     return num_tokens
 
 
-def construct_messages(example):
+def construct_messages(example: Dict) -> Dict:
     example["answer"] = example["answer"].replace("think>", "reason>").replace("answer>", "solution>")
     example["messages"] = CHATML.format(question=example["question"], answer=example["answer"])
     example["num_tokens"] = num_tokens_from_string(example["messages"])
     return example
 
 
-def language_filter(example):
+def get_variability(example: Dict, variability_map: Dict) -> Dict:
+    example["variability"] = variability_map.get(example["query_id"], 0)
+    return example
+
+
+def language_filter(example: Dict) -> bool:
     english_confidence = detector.compute_language_confidence(example["messages"], Language.ENGLISH)
     return english_confidence >= 0.99
 
 
-def length_filter(example):
+def length_filter(example: Dict) -> bool:
     return example["num_tokens"] <= 4096
 
 
-def variabilty_filter(example):
+def variabilty_filter(example: Dict) -> bool:
     return example["variabilty"] >= 0.05
 
 
-def correctness_filter(example):
+def correctness_filter(example: Dict) -> bool:
     if example["category"] == "science":
         return example["verify_score"] > 4.99
     elif example["category"] == "other":
@@ -57,7 +62,11 @@ def correctness_filter(example):
     return example["verify_score"] > 0.99
 
 
-def main(model_name):
+def all_filters(example: Dict) -> bool:
+    return length_filter(example) and correctness_filter(example) and language_filter(example)
+
+
+def main(model_name: str) -> None:
     features = Features(
         {
             "question": Value("string"),
@@ -88,9 +97,19 @@ def main(model_name):
     full_dataset = []
     for category in ["code", "math", "instruction follow", "science", "other"]:
         category_ds = []
-        for split in tqdm(splits[category], desc=f"Processing category: {category}", total=len(splits[category])):
-            ds = load_dataset("a-m-team/AM-DeepSeek-Distilled-40M", data_files={"train": split}, split="train", features=features)
-            ds = ds.map(construct_messages, remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"], num_proc=os.cpu_count())
+        for split in tqdm(splits[category], desc=f"Processing {category}", total=len(splits[category])):
+            ds = load_dataset(
+                "a-m-team/AM-DeepSeek-Distilled-40M",
+                data_files={"train": split},
+                split="train",
+                features=features,
+            )
+            ds = ds.map(
+                construct_messages,
+                num_proc=os.cpu_count(),
+                desc="Constructing messages",
+                remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"],
+            )
             ds = ds.add_column("query_id", [i for i in range(len(ds))])
             category_ds.append(ds)
         category_ds = concatenate_datasets(category_ds)
@@ -111,10 +130,20 @@ def main(model_name):
             else:
                 variability_map[query_id] = 0
 
-        category_ds = category_ds.map(lambda example: {"variability": variability_map.get(example["query_id"], 0)}, num_proc=os.cpu_count())
+        category_ds = category_ds.map(
+            variability_map,
+            fn_kwargs={"variability_map": variability_map},
+            num_proc=os.cpu_count(),
+            desc="Calculating variability",
+            remove_columns=["query_id"],
+        )
 
-        ds = ds.filter(lambda x: length_filter(x) and correctness_filter(x) and language_filter(x), num_proc=os.cpu_count())
-        full_dataset.append(ds)
+        category_ds = category_ds.filter(
+            all_filters,
+            num_proc=os.cpu_count(),
+            desc="Filtering examples by length, correctness, and language",
+        )
+        full_dataset.append(category_ds)
 
     full_dataset = concatenate_datasets(full_dataset)
     full_dataset.save_to_disk(f"../data/cold_start_predupe_{model_name}")
