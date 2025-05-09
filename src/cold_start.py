@@ -4,7 +4,6 @@ import sys
 from collections import Counter
 from typing import Dict
 
-import numpy as np
 import tiktoken
 from datasets import Features, Value, concatenate_datasets, load_dataset
 from lingua import Language, LanguageDetectorBuilder
@@ -36,11 +35,6 @@ def construct_messages(example: Dict) -> Dict:
     return example
 
 
-def get_variability(example: Dict, variability_map: Dict) -> Dict:
-    example["variability"] = variability_map.get(example["query_id"], 0)
-    return example
-
-
 def language_filter(example: Dict) -> bool:
     english_confidence = detector.compute_language_confidence(example["messages"], Language.ENGLISH)
     return english_confidence >= 0.99
@@ -55,9 +49,7 @@ def variabilty_filter(example: Dict) -> bool:
 
 
 def correctness_filter(example: Dict) -> bool:
-    if example["category"] == "science":
-        return example["verify_score"] > 4.99
-    elif example["category"] == "other":
+    if example["category"] == "other":
         return example["verify_score"] > 0.7
     return example["verify_score"] > 0.99
 
@@ -95,7 +87,7 @@ def main(model_name: str) -> None:
     }
 
     full_dataset = []
-    for category in ["code", "math", "instruction follow", "science", "other"]:
+    for category in splits:
         category_ds = []
         for split in tqdm(splits[category], desc=f"Processing {category}", total=len(splits[category])):
             ds = load_dataset(
@@ -110,33 +102,32 @@ def main(model_name: str) -> None:
                 desc="Constructing messages",
                 remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"],
             )
-            ds = ds.add_column("query_id", [i for i in range(len(ds))])
+            # ds = ds.add_column("query_id", [i for i in range(len(ds))])
             category_ds.append(ds)
         category_ds = concatenate_datasets(category_ds)
 
-        query_scores = {}
-        for example in category_ds:
-            query_id = example["query_id"]
-            if query_id not in query_scores:
-                query_scores[query_id] = []
-            query_scores[query_id].append(example["verify_score"])
+        # query_scores = {}
+        # for example in category_ds:
+        #     query_id = example["query_id"]
+        #     if query_id not in query_scores:
+        #         query_scores[query_id] = []
+        #     query_scores[query_id].append(example["verify_score"])
 
-        variability_map = {}
-        for query_id, scores in query_scores.items():
-            scores_array = np.array(scores)
-            mean = np.mean(scores_array)
-            if mean > 0:
-                variability_map[query_id] = np.std(scores_array) / mean
-            else:
-                variability_map[query_id] = 0
+        # variability_map = {}
+        # for query_id, scores in query_scores.items():
+        #     scores_array = np.array(scores)
+        #     mean = np.mean(scores_array)
+        #     if mean > 0:
+        #         variability_map[query_id] = np.std(scores_array) / mean
+        #     else:
+        #         variability_map[query_id] = 0
 
-        category_ds = category_ds.map(
-            variability_map,
-            fn_kwargs={"variability_map": variability_map},
-            num_proc=os.cpu_count(),
-            desc="Calculating variability",
-            remove_columns=["query_id"],
-        )
+        # category_ds = category_ds.map(
+        #     lambda example: {"variability": variability_map.get(example["query_id"], 0)},
+        #     num_proc=os.cpu_count(),
+        #     desc="Calculating variability",
+        #     remove_columns=["query_id"],
+        # )
 
         category_ds = category_ds.filter(
             all_filters,
@@ -146,7 +137,7 @@ def main(model_name: str) -> None:
         full_dataset.append(category_ds)
 
     full_dataset = concatenate_datasets(full_dataset)
-    full_dataset.save_to_disk(f"../data/cold_start_predupe_{model_name}")
+    full_dataset.save_to_disk(f"../data/cold_start_predupe_{model_name}_sc")
     log.info(f"Total examples after filtering: {len(full_dataset)}")
     log.info(f"Distribution of categories: {Counter(full_dataset['category'])}")
     log.info(f"Columns in the dataset: {full_dataset.column_names}")
