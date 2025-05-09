@@ -29,16 +29,16 @@ def main(cfg: Config):
         seed=cfg.minhash.seed,
     )  # better precision -> fewer false positives (collisions)
 
-    SCRATCH_DIR = cfg.defaults.scratch_dir
+    SCRATCH_DIR = cfg.basics.scratch_dir
     DATA_NAME = f"{cfg.data.dataset_prefix}_{cfg.data.model_name}"
-    LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.defaults.logs_folder}_{cfg.data.model_name}"
-    LOCAL_LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.defaults.local_logs_folder}_{cfg.data.model_name}"
-    OUTPUT_DIR = f"{SCRATCH_DIR}/{cfg.defaults.output_base}_{cfg.data.model_name}"
+    LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.basics.logs_folder}_{cfg.data.model_name}"
+    LOCAL_LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.basics.local_logs_folder}_{cfg.data.model_name}"
+    OUTPUT_DIR = f"{SCRATCH_DIR}/{cfg.basics.output_base}_{cfg.data.model_name}"
     MINHASH_BASE_PATH = f"{OUTPUT_DIR}/minhash"
     DEDUP_OUTPUT_PATH = f"{OUTPUT_DIR}/deduped_output"
     REMOVED_OUTPUT_PATH = f"{OUTPUT_DIR}/removed_instances"
 
-    TOTAL_TASKS = cfg.defaults.total_tasks
+    TOTAL_TASKS = cfg.basics.total_tasks
 
     INPUT_READER = HuggingFaceDatasetReader(DATA_NAME, text_key=cfg.data.text_key, dataset_options={"split": "train"}, doc_progress=True)
 
