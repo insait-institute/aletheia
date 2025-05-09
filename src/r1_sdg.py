@@ -26,12 +26,6 @@ client = openai.AsyncOpenAI(api_key=api_key, base_url=api_base)
 
 REWARD_PROMPT_TEMPLATE = """<|im_start|>system
 You are an excellent and professional judge. You are given two responses to the same question, one of which is of a higher quality than the other. Your task is to assign a numeric score to each response based on the following criteria:
-1. **Correctness**: Is the response correct? Does it answer the user's question completely and accurately?
-2. **Clarity**: How clear and understandable are the code and the accompanying comments and documentation?
-3. **Efficiency**: Is the code efficient? Does it follow best practices for performance and resource usage? Does it avoid unnecessary complexity?
-4. **Conciseness**: Is the response concise and to the point? Does it avoid unnecessary repetition or verbosity?
-5. **Security**: Does the response follow best practices for security? Does it avoid common pitfalls and vulnerabilities?
-6. **Style**: Does the code follow the stylistic norms and idioms specific to the programming language? Is the code well-structured and easy to read?
 
 You will be told which response is of a higher quality, and you must assign a score to both responses based on the above criteria.
 <|im_end|> 
@@ -185,16 +179,14 @@ async def get_responses(prompts: List[List[Dict[str, str]]], sparams: Dict[str, 
                 return await _get_single_response(p, sparams)
 
         coros = [sem_fetch(p) for p in batch]
-        batch_responses = await tqdm.gather(
-            *coros,
-            total=len(coros),
-            desc=f"Batch {batch_num}",
-        )
+        batch_responses = []
+        for future in tqdm(asyncio.as_completed(coros), total=len(coros), desc=f"Batch {batch_num}"):
+            batch_responses.append(await future)
         results.extend(batch_responses)
 
         # Save intermediate results
         with open(save_dir / f"intermediate-sdg-output-{batch_num}.pkl", "wb") as f:
-            pickle.dump(batch_responses, f)
+            pickle.dump(results, f)
             # Remove older pickle files (keep only the current batch file)
             for old_file in save_dir.glob("intermediate-sdg-output-*.pkl"):
                 if old_file.name != f"intermediate-sdg-output-{batch_num}.pkl":
