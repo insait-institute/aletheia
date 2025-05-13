@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import pickle
@@ -12,7 +13,7 @@ import datasets
 import hydra
 import openai
 from openai import ChatCompletion
-from tqdm.asyncio import tqdm
+from tqdm import tqdm
 
 from configs.r1_sdg_config import Config
 
@@ -144,68 +145,65 @@ def chunks(lst: list, n: int):
         yield lst[i : i + n]
 
 
-async def get_responses(prompts: List[List[Dict[str, str]]], sparams: Dict[str, Any]) -> List[ChatCompletion]:
+async def get_responses(prompts: List[List[Dict[str, str]]], sparams: Dict[str, Any], save_dir: Path) -> List[ChatCompletion]:
     results = []
-    save_dir = Path(__file__).parent.parent / "outputs/sdg"
-    save_dir.mkdir(parents=True, exist_ok=True)
-
     # Find last saved chunk
     last_processed_chunk = -1
-    intermediate_files = list(save_dir.glob("intermediate-sdg-output-*.pkl"))
+    intermediate_files = list(save_dir.glob("cached-responses-*.pkl"))
     if intermediate_files:
-        # If a file exists, extract the chunk number from its name
+        # If a file exists, extract the chunk number from its name (at any time, exactly one file should exist)
         file = intermediate_files[0]
-        match = re.search(r"intermediate-sdg-output-(\d+).pkl", file.name)
+        match = re.search(r"cached-responses-(\d+).pkl", file.name)
         if match:
             last_processed_chunk = int(match.group(1))
 
     # Load intermediate results if any
     if last_processed_chunk != -1:
-        with open(save_dir / f"intermediate-sdg-output-{last_processed_chunk}.pkl", "rb") as f:
+        with open(save_dir / f"cached-responses-{last_processed_chunk}.pkl", "rb") as f:
             results = pickle.load(f)
-            log.info(f"Loaded intermediate results from batch {last_processed_chunk}")
+            log.info(f"Loaded {len(results)} results upto batch {last_processed_chunk}")
 
     # Iterate chunk by chunk
+    pbar = tqdm(total=len(prompts // sparams.chunk_batch_size), desc="Processing batches")
     for batch_num, batch in enumerate(chunks(prompts, sparams.chunk_batch_size), start=1):
         # Skip chunk if processed
         if batch_num <= last_processed_chunk:
             log.info(f"Skipping batch {batch_num} (already processed)")
             continue
-        log.info(f"Processing batch {batch_num} ({len(batch)} prompts)...")
-        sem = asyncio.Semaphore(sparams.chunk_max_concurrency)
+        log.debug(f"Processing batch {batch_num} ({len(batch)} prompts)...")
+        results += await asyncio.gather(*[_get_single_response(p, sparams) for p in batch])
+        log.debug(f"Batch {batch_num} completed")
 
-        async def sem_fetch(p):
-            async with sem:
-                return await _get_single_response(p, sparams)
-
-        coros = [sem_fetch(p) for p in batch]
-        batch_responses = []
-        for future in tqdm(asyncio.as_completed(coros), total=len(coros), desc=f"Batch {batch_num}"):
-            batch_responses.append(await future)
-        results.extend(batch_responses)
+        # Delete prior cached responses
+        for old_file in save_dir.glob("cached-responses-*.pkl"):
+            old_file.unlink()
 
         # Save intermediate results
-        with open(save_dir / f"intermediate-sdg-output-{batch_num}.pkl", "wb") as f:
+        with open(save_dir / f"cached-responses-{batch_num}.pkl", "wb") as f:
             pickle.dump(results, f)
-            # Remove older pickle files (keep only the current batch file)
-            for old_file in save_dir.glob("intermediate-sdg-output-*.pkl"):
-                if old_file.name != f"intermediate-sdg-output-{batch_num}.pkl":
-                    old_file.unlink()
-            log.info(f"Batch {batch_num} responses saved")
+            log.debug(f"Batch {batch_num} responses saved")
+        pbar.update(1)
     return results
 
 
 @hydra.main(version_base=None, config_name="r1_sdg_config")
 def main(cfg: Config) -> None:
     data = datasets.load_dataset(cfg.data.name)
+
+    # Create cache directory for intermediate result based on the prompt template
+    save_dir = Path(__file__).parent.parent / "outputs/cached" / hashlib.md5(REWARD_PROMPT_TEMPLATE).hexdigest()
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create chosen and rejected prompt columns
     train_data = data[cfg.data.train_split]
     test_data = data[cfg.data.test_split]
 
     train_data = train_data.map(lambda x: create_prompt(x, cfg.data.input_col, cfg.data.chosen_col, cfg.data.rejected_col))
     test_data = test_data.map(lambda x: create_prompt(x, cfg.data.input_col, cfg.data.chosen_col, cfg.data.rejected_col))
 
+    # Obtain responses
     all_prompts = train_data["prompt"] + test_data["prompt"]
-    all_responses = asyncio.run(get_responses(all_prompts, sparams=cfg.sparams))
+    all_responses = asyncio.run(get_responses(all_prompts, cfg.sparams, save_dir))
 
     reasoning_traces = [get_reasoning_trace(response) for response in all_responses]
     analysis = [get_analysis(response) for response in all_responses]

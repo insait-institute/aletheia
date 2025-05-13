@@ -13,8 +13,7 @@ class OpenAI:
 class SParams:
     max_tokens: int = 16192
     seed: int = 42
-    chunk_batch_size: int = 1000
-    chunk_max_concurrency: int = 10
+    chunk_batch_size: int = 100
 
 
 @dataclass
