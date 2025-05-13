@@ -34,7 +34,7 @@ def num_tokens_from_string(string: str) -> int:
 def construct_messages(example: Dict) -> Dict:
     example["answer"] = example["answer"].replace("think>", "reason>").replace("answer>", "solution>")
     example["messages"] = CHATML.format(question=example["question"], answer=example["answer"])
-    # example["num_tokens"] = num_tokens_from_string(example["messages"])
+    example["num_tokens"] = num_tokens_from_string(example["messages"])
     return example
 
 
