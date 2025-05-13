@@ -4,6 +4,7 @@ import sys
 from collections import Counter
 from typing import Dict
 
+import pyarrow.compute as pc
 import tiktoken
 from datasets import Features, Value, concatenate_datasets, load_dataset
 from lingua import Language, LanguageDetectorBuilder
@@ -11,6 +12,7 @@ from tqdm import tqdm
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 CHATML = """<|im_start|>user
 {question}
 <|im_end|>
@@ -18,6 +20,7 @@ CHATML = """<|im_start|>user
 {answer}
 <|im_end|>
 """
+
 languages = [Language.ENGLISH, Language.CHINESE, Language.HINDI, Language.SPANISH, Language.ARABIC, Language.FRENCH, Language.RUSSIAN, Language.GERMAN]
 detector = LanguageDetectorBuilder.from_languages(*languages).build()
 
@@ -31,7 +34,7 @@ def num_tokens_from_string(string: str) -> int:
 def construct_messages(example: Dict) -> Dict:
     example["answer"] = example["answer"].replace("think>", "reason>").replace("answer>", "solution>")
     example["messages"] = CHATML.format(question=example["question"], answer=example["answer"])
-    example["num_tokens"] = num_tokens_from_string(example["messages"])
+    # example["num_tokens"] = num_tokens_from_string(example["messages"])
     return example
 
 
@@ -96,48 +99,46 @@ def main(model_name: str) -> None:
                 split="train",
                 features=features,
             )
+            ds = ds.sort("question")
             ds = ds.map(
                 construct_messages,
                 num_proc=os.cpu_count(),
                 desc="Constructing messages",
                 remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"],
             )
-            # ds = ds.add_column("query_id", [i for i in range(len(ds))])
+            ds = ds.add_column("query_id", [i for i in range(len(ds))])
             category_ds.append(ds)
+        # Concatenate all splits for this category
         category_ds = concatenate_datasets(category_ds)
-
-        # query_scores = {}
-        # for example in category_ds:
-        #     query_id = example["query_id"]
-        #     if query_id not in query_scores:
-        #         query_scores[query_id] = []
-        #     query_scores[query_id].append(example["verify_score"])
-
-        # variability_map = {}
-        # for query_id, scores in query_scores.items():
-        #     scores_array = np.array(scores)
-        #     mean = np.mean(scores_array)
-        #     if mean > 0:
-        #         variability_map[query_id] = np.std(scores_array) / mean
-        #     else:
-        #         variability_map[query_id] = 0
-
-        # category_ds = category_ds.map(
-        #     lambda example: {"variability": variability_map.get(example["query_id"], 0)},
-        #     num_proc=os.cpu_count(),
-        #     desc="Calculating variability",
-        #     remove_columns=["query_id"],
-        # )
-
+        table = category_ds.data.table
+        grouped = table.group_by(["query_id"]).aggregate([("verify_score", "mean"), ("verify_score", "stddev")])
+        ratio = pc.divide(grouped["verify_score_stddev"], grouped["verify_score_mean"])
+        grouped = grouped.append_column("variability", ratio)
+        lookup = {
+            qid: var
+            for qid, var in zip(
+                grouped["query_id"].to_pylist(),
+                grouped["variability"].to_pylist(),
+            )
+        }
+        category_ds = category_ds.map(
+            lambda x: {"variabilty": lookup[x["query_id"]]},
+            remove_columns=[],
+            num_proc=os.cpu_count(),
+            desc="Calculating variability",
+        )
         category_ds = category_ds.filter(
             all_filters,
             num_proc=os.cpu_count(),
             desc="Filtering examples by length, correctness, and language",
         )
-        full_dataset.append(category_ds)
 
+        full_dataset.append(category_ds)
+        log.info(f"Final dataset columns for {category}: {category_ds.column_names}")
     full_dataset = concatenate_datasets(full_dataset)
-    full_dataset.save_to_disk(f"../data/cold_start_predupe_{model_name}_sc")
+    full_dataset = full_dataset.select_columns(["messages", "variabilty", "query_id"])
+    full_dataset.to_parquet(f"../data/cold_start_with_variability_{model_name}.parquet")
+    # full_dataset.save_to_disk(f"../data/cold_start_with_variability_{model_name}")
     log.info(f"Total examples after filtering: {len(full_dataset)}")
     log.info(f"Distribution of categories: {Counter(full_dataset['category'])}")
     log.info(f"Columns in the dataset: {full_dataset.column_names}")
