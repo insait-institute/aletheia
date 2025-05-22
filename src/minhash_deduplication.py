@@ -30,7 +30,7 @@ def main(cfg: Config):
     )  # better precision -> fewer false positives (collisions)
 
     SCRATCH_DIR = cfg.basics.scratch_dir
-    DATA_NAME = f"{cfg.data.dataset_prefix}_{cfg.data.model_name}"
+    DATA_NAME = cfg.data.dataset_name if cfg.data.dataset_name else f"{cfg.data.dataset_prefix}_{cfg.data.model_name}"
     LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.basics.logs_folder}_{cfg.data.model_name}"
     LOCAL_LOGS_FOLDER = f"{SCRATCH_DIR}/{cfg.basics.local_logs_folder}_{cfg.data.model_name}"
     OUTPUT_DIR = f"{SCRATCH_DIR}/{cfg.basics.output_base}_{cfg.data.model_name}"
@@ -64,7 +64,6 @@ def main(cfg: Config):
         cpus_per_task=2,
         workers=16,
         sbatch_args={
-            "constraint": "type-cpu",
             "nodelist": cfg.slurm.nodelist,
             "exclude": cfg.slurm.exclude_nodes,
         },
@@ -90,7 +89,6 @@ def main(cfg: Config):
         mem_per_cpu_gb=2,
         cpus_per_task=2,
         sbatch_args={
-            "constraint": "type-cpu",
             "nodelist": cfg.slurm.nodelist,
             "exclude": cfg.slurm.exclude_nodes,
         },
@@ -115,7 +113,6 @@ def main(cfg: Config):
         depends=stage2,
         slurm_logs_folder=f"{LOCAL_LOGS_FOLDER}/clusters/slurm_logs",
         sbatch_args={
-            "constraint": "type-cpu",
             "nodelist": cfg.slurm.nodelist,
             "exclude": cfg.slurm.exclude_nodes,
         },
@@ -150,7 +147,6 @@ def main(cfg: Config):
         workers=16,
         cpus_per_task=2,
         sbatch_args={
-            "constraint": "type-cpu",
             "nodelist": cfg.slurm.nodelist,
             "exclude": cfg.slurm.exclude_nodes,
         },

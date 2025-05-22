@@ -15,14 +15,15 @@ class Basics:
 
 @dataclass
 class Data:
-    model_name: str = "r1"
-    dataset_prefix: str = "CodeShield/cold_start_data_predupe"
+    model_name: str = "rank1"
+    dataset_prefix: str = "CodeShield/rank1_dedupe"
+    dataset_name: str = "jhu-clsp/rank1-training-data"
     text_key: str = "messages"
 
 
 @dataclass
 class Slurm:
-    nodelist: str = "gcpcpu-eu-1"
+    nodelist: str = "msp3-7"
     exclude_nodes: str = "gcp-eu-1,gcp-eu-2,gcpl4-eu-0,gcpl4-eu-1,gcpl4-eu-2,gcpl4-eu-3,gcpl4-eu-4,gcpl4-eu-5,gcpl4-eu-6,gcpl4-eu-7"
 
 
