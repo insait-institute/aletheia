@@ -6,7 +6,7 @@ from typing import Dict
 
 import pyarrow.compute as pc
 import tiktoken
-from datasets import Features, Value, concatenate_datasets, load_dataset
+from datasets import DatasetDict, Features, Value, concatenate_datasets, load_dataset
 from lingua import Language, LanguageDetectorBuilder
 from tqdm import tqdm
 
@@ -40,20 +40,14 @@ def construct_messages(example: Dict) -> Dict:
 
 def language_filter(example: Dict) -> bool:
     english_confidence = detector.compute_language_confidence(example["messages"], Language.ENGLISH)
-    return english_confidence >= 0.99
+    return english_confidence >= 0.995
 
 
 def length_filter(example: Dict) -> bool:
     return example["num_tokens"] <= 4096
 
 
-def variabilty_filter(example: Dict) -> bool:
-    return example["variabilty"] >= 0.05
-
-
 def correctness_filter(example: Dict) -> bool:
-    if example["category"] == "other":
-        return example["verify_score"] > 0.7
     return example["verify_score"] > 0.99
 
 
@@ -104,7 +98,7 @@ def main(model_name: str) -> None:
                 construct_messages,
                 num_proc=os.cpu_count(),
                 desc="Constructing messages",
-                remove_columns=["question", "answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"],
+                remove_columns=["answer", "answer_source", "ground_truth", "test_case", "instruction_constrain", "ppl"],
             )
             ds = ds.add_column("query_id", [i for i in range(len(ds))])
             category_ds.append(ds)
@@ -130,18 +124,20 @@ def main(model_name: str) -> None:
         category_ds = category_ds.filter(
             all_filters,
             num_proc=os.cpu_count(),
-            desc="Filtering examples by length, correctness, and language",
+            desc="Filtering examples by length, correctness, language",
         )
 
         full_dataset.append(category_ds)
         log.info(f"Final dataset columns for {category}: {category_ds.column_names}")
     full_dataset = concatenate_datasets(full_dataset)
-    full_dataset = full_dataset.select_columns(["messages", "variabilty", "query_id"])
-    full_dataset.to_parquet(f"../data/cold_start_with_variability_{model_name}.parquet")
-    # full_dataset.save_to_disk(f"../data/cold_start_with_variability_{model_name}")
-    log.info(f"Total examples after filtering: {len(full_dataset)}")
-    log.info(f"Distribution of categories: {Counter(full_dataset['category'])}")
-    log.info(f"Columns in the dataset: {full_dataset.column_names}")
+    full_dataset = DatasetDict({"train": full_dataset})
+    full_dataset.push_to_hub(
+        repo_id=f"CodeShield/cold_start_predupe_{model_name}",
+        private=True,
+    )
+    log.info(f"Total examples after filtering: {len(full_dataset['train'])}")
+    log.info(f"Distribution of categories: {Counter(full_dataset['train']['category'])}")
+    log.info(f"Columns in the dataset: {full_dataset['train'].column_names}")
 
 
 if __name__ == "__main__":
