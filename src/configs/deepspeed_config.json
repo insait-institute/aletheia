@@ -20,7 +20,7 @@
     "scheduler": {
         "type": "WarmupCosineLR",
         "params": {
-            "warmup_min_ratio": "auto",
+            "warmup_min_ratio": 0,
             "cos_min_ratio": 0.1,
             "warmup_num_steps": "auto",
             "total_num_steps": "auto"
