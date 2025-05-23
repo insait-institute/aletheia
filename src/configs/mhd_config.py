@@ -17,7 +17,7 @@ class Basics:
 class Data:
     model_name: str = "rank1"
     dataset_prefix: str = "CodeShield/rank1_dedupe"
-    dataset_name: str = "jhu-clsp/rank1-training-data"
+    dataset_name: str = "CodeShield/rank1_predupe"
     text_key: str = "messages"
 
 
@@ -30,8 +30,8 @@ class Slurm:
 @dataclass
 class Minhash:
     precision: int = 64
-    num_buckets: int = 32
-    hashes_per_bucket: int = 8
+    num_buckets: int = 64
+    hashes_per_bucket: int = 4
     n_grams: int = 5
     seed: int = 42
 
