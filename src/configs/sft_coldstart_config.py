@@ -5,7 +5,7 @@ from hydra.core.config_store import ConfigStore
 
 @dataclass
 class Data:
-    path: str = "CodeShield/coldstart_curriculum"
+    path: str = "CodeShield/coldstart_curriculum_v2"
     split_ratio: float = 1.0
 
 
@@ -18,7 +18,7 @@ class SFTParams:
     weight_decay: float = 1e-2
     warmup_ratio: float = 0.05
     logging_steps: int = 1
-    max_length: int = 4096
+    max_length: int = 6200
     save_steps: float = 0.25
     tp_size: int = 0
     lr_scheduler_type: str = "cosine_with_min_lr"

@@ -6,7 +6,7 @@ from pathlib import Path
 import hydra
 import torch
 import torch.distributed as dist
-from datasets import load_dataset
+from datasets import concatenate_datasets, load_dataset
 from torch.utils.data import SequentialSampler
 from transformers import AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
@@ -24,17 +24,19 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 class OrderedSFTTrainer(SFTTrainer):
-    def get_train_dataloader(self):
-        if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
+    def _get_train_sampler(self):
+        return SequentialSampler(self.train_dataset)
 
-        return self._get_dataloader(
-            dataset=self.train_dataset,
-            description="Training",
-            batch_size=self._train_batch_size,
-            sampler_fn=SequentialSampler(self.train_dataset),
-            is_training=True,
-        )
+
+def tokenize(examples, tokenizer, max_length):
+    formatted_texts = []
+    for message_chain in examples["messages"]:
+        text_parts = []
+        for message in message_chain:
+            text_parts.append(f"<|im_start|>{message['role']}\n{message['content']}\n<|im_end|>")
+        formatted_texts.append("\n".join(text_parts))
+    processed = tokenizer(text=formatted_texts, padding="max_length", max_length=max_length, truncation=True, add_special_tokens=True)
+    return processed
 
 
 @hydra.main(version_base=None, config_name="sft_coldstart_config")
@@ -46,7 +48,12 @@ def train(cfg: Config) -> None:
     hub_model_id = f"CodeShield/sft-{model_short_name}"
 
     train_data = load_dataset(cfg.data.path, split="train", num_proc=cpu_count)
-    train_data = train_data.sort("currciulum_stage")
+    stage_1 = train_data.filter(lambda x: x["currciulum_stage"] == "stage_1", num_proc=os.cpu_count())
+    stage_2 = train_data.filter(lambda x: x["currciulum_stage"] == "stage_2", num_proc=os.cpu_count())
+    stage_1 = stage_1.shuffle(seed=cfg.sft_params.seed)
+    stage_2 = stage_2.shuffle(seed=cfg.sft_params.seed)
+    train_data = concatenate_datasets([stage_1, stage_2])
+
     log.info(f"Loaded data from {cfg.data.path}")
     if cfg.sft_params.max_length:
         log.info(f"Filtered data to max length {cfg.sft_params.max_length}")
@@ -91,25 +98,25 @@ def train(cfg: Config) -> None:
         data_seed=cfg.sft_params.seed,
         dataloader_drop_last=True,
         dataloader_num_workers=cpu_count // gpu_count,
-        remove_unused_columns=True,
+        remove_unused_columns=False,
+        dataset_kwargs={"skip_prepare_dataset": True},
         # Miscellaneous parameters
         ddp_backend="nccl",
         ddp_timeout=36000,
         deepspeed=cfg.sft_params.deepspeed_config_path,
     )
     tokenizer = AutoTokenizer.from_pretrained(cfg.sft_params.model_name)
-
     response_template = "<|im_start|>assistant\n"
     collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
-
-    trainer = SFTTrainer(
+    train_data = train_data.map(tokenize, fn_kwargs={"tokenizer": tokenizer, "max_length": cfg.sft_params.max_length}, desc="Tokenizing data", batched=True, remove_columns=train_data.column_names)
+    trainer = OrderedSFTTrainer(
         model=cfg.sft_params.model_name,
         args=config,
         train_dataset=train_data,
         processing_class=tokenizer,
         data_collator=collator,
     )
-
+    log.info(f"Using Training sampler: {trainer.get_train_dataloader().sampler.__class__.__name__}")
     trainer.train()
     log.info("Training completed.")
     trainer.save_model(output_dir)
