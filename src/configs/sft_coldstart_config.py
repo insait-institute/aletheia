@@ -13,7 +13,7 @@ class Data:
 class SFTParams:
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
     batch_size: int = 4
-    num_epochs: int = 2
+    num_epochs: int = 1
     learning_rate: float = 1e-4
     weight_decay: float = 1e-2
     warmup_ratio: float = 0.05
