@@ -11,30 +11,30 @@ class Data:
 
 @dataclass
 class SFTParams:
-    model_name: str = "Qwen/Qwen2.5-7B-Instruct"
     batch_size: int = 4
-    num_epochs: int = 1
-    learning_rate: float = 1e-4
-    weight_decay: float = 1e-2
-    warmup_ratio: float = 0.05
-    logging_steps: int = 1
-    max_length: int = 6200
-    save_steps: float = 0.25
-    tp_size: int = 0
-    lr_scheduler_type: str = "cosine_with_min_lr"
-    lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
-    gradient_accumulation_steps: int = 16
-    overwrite_output_dir: bool = True
-    seed: int = 42
-    use_bf16: bool = True
-    resume_training_if_possible: bool = True
     deepspeed_config_path: str = "configs/deepspeed_config.json"
+    gradient_accumulation_steps: int = 16
+    learning_rate: float = 1e-4
+    logging_steps: int = 1
+    lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
+    lr_scheduler_type: str = "cosine_with_min_lr"
+    max_length: int = 6200
+    model_name: str = "Qwen/Qwen2.5-7B-Instruct"
+    num_epochs: int = 1
+    overwrite_output_dir: bool = True
+    resume_training_if_possible: bool = True
+    save_steps: float = 0.25
+    seed: int = 42
+    tp_size: int = 0
+    use_bf16: bool = True
+    warmup_ratio: float = 0.05
+    weight_decay: float = 1e-2
 
 
 @dataclass
 class WandbParams:
-    run_name: str = "sft-coldstart-test-run"
     log_level: str = "info"
+    run_name: str = "sft-coldstart-test-run"
 
 
 @dataclass
