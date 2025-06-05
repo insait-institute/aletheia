@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Optional
 
 from hydra.core.config_store import ConfigStore
 
@@ -12,52 +11,52 @@ class Data:
 
 @dataclass
 class GRPOParams:
-    model_name: str = "CodeShield/sft-qwen3-0.6b-base"
-    beta: float = 0.04
-    epsilon: float = 0.2
-    loss_type: str = "dr_grpo"
     batch_size: int = 4
+    beta: float = 1e-3
+    epsilon: float = 0.2
     eval_batch_size: int = 16
-    num_epochs: int = 1
-    learning_rate: float = 1e-4
-    weight_decay: float = 1e-2
-    warmup_ratio: float = 0.05
+    gradient_accumulation_steps: int = 32
+    learning_rate: float = 1e-6
     logging_steps: int = 1
-    save_steps: float = 0.25
-    max_prompt_length: int = 6200
-    lr_scheduler_type: str = "cosine_with_min_lr"
+    loss_type: str = "dr_grpo"
     lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
-    gradient_accumulation_steps: int = 64
+    lr_scheduler_type: str = "cosine_with_min_lr"
+    max_prompt_length: int = 6200
+    model_name: str = "CodeShield/sft-qwen3-0.6b"
+    num_epochs: int = 1
     overwrite_output_dir: bool = True
+    resume_training_if_possible: bool = True
+    save_steps: float = 0.25
     seed: int = 42
     use_bf16: bool = True
-    resume_training_if_possible: bool = True
+    warmup_ratio: float = 0.05
+    weight_decay: float = 1e-2
 
 
 @dataclass
 class GenParams:
-    temperature: float = 0.5
     max_completion_length: int = 8192
     num_generations: int = 8
+    temperature: float = 0.5
+    vllm_dtype: str = "bfloat16"
+    vllm_gpu_memory_utilization: float = 0.4
     vllm_server_host: str = "localhost"
     vllm_server_port: int = 8000
     vllm_server_timeout: int = 600
-    vllm_gpu_memory_utilization: float = 0.95
-    vllm_dtype: str = "bfloat16"
-    vllm_max_model_len: Optional[int] = None
+    vllm_tensor_parallel_size: int = 8
 
 
 @dataclass
 class WandbParams:
-    run_name: str = "grpo-test-run"
     log_level: str = "info"
+    run_name: str = "grpo-test-run"
 
 
 @dataclass
 class Config:
     data: Data = field(default_factory=Data)
-    grpo_params: GRPOParams = field(default_factory=GRPOParams)
     gen_params: GenParams = field(default_factory=GenParams)
+    grpo_params: GRPOParams = field(default_factory=GRPOParams)
     wandb_params: WandbParams = field(default_factory=WandbParams)
 
 
