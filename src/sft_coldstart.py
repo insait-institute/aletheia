@@ -19,7 +19,7 @@ CHAT_TEMPLATE = """
     {{- '<|im_start|>' + message['role'] + '\\n' + message['content'] + '\\n' + eos_token + '\\n'}}
 {%- endfor %}
 {%- if add_generation_prompt %}
-    {{- '<|im_start|>assistant\n<reason>'}}
+    {{- '<|im_start|>assistant\\n<reason>\\n'}}
 {%- endif %}
 """
 
@@ -140,15 +140,22 @@ def train(cfg: Config) -> None:
         {
             "eos_token": "<|im_end|>",
             "pad_token": "<|end_of_text|>",
-        }
+            "additional_special_tokens": ["<reason>", "</reason>", "<solution>", "</solution>"],
+        },
+        replace_additional_special_tokens=False,
     )
+    log.info(f"Tokenizer special tokens: {tokenizer.special_tokens_map}")
     model = AutoModelForCausalLM.from_pretrained(
         cfg.sft_params.model_name,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
     )
-    model.resize_token_embeddings(len(tokenizer))
     model.config.pad_token_id = tokenizer.pad_token_id
+    model.config.eos_token_id = tokenizer.eos_token_id
+    model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=128)
+
+    log.info(f"Model vocab size: {model.config.vocab_size}")
+    log.info(f"Model pad token ID: {model.config.pad_token_id}")
 
     train_data = train_data.map(tokenize, fn_kwargs={"tokenizer": tokenizer, "max_length": cfg.sft_params.max_length}, desc="Tokenizing data", batched=True, remove_columns=train_data.column_names)
     log.info(f"Sample tokenized data\n-------\n{tokenizer.decode(train_data[0]['input_ids'])}\n-------")

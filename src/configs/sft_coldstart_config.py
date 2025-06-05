@@ -16,7 +16,7 @@ class SFTParams:
     gradient_accumulation_steps: int = 16
     learning_rate: float = 1e-4
     logging_steps: int = 1
-    lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
+    lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 5e-6})
     lr_scheduler_type: str = "cosine_with_min_lr"
     max_length: int = 6200
     model_name: str = "Qwen/Qwen2.5-7B-Instruct"
