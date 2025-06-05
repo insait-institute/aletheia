@@ -44,7 +44,6 @@ dependencies:
     - spacy==3.8.6
     - tenacity==9.1.2
     - transformers==4.51.3
-    - trl==0.18.1
     - vllm==0.8.5.post1
     - wandb==0.19.9
     - zstandard==0.23.0
