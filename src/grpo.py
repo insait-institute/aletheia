@@ -18,7 +18,8 @@ logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 wandb.login()
-os.environ["WANDB_PROJECT"] = "CodeShield"
+os.environ["WANDB_ENTITY"] = "CodeShield"
+os.environ["WANDB_PROJECT"] = "CerebRM-GRPO"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 

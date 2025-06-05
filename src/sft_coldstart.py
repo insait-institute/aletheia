@@ -42,7 +42,8 @@ def setup_logger():
 
 log = setup_logger()
 dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
-os.environ["WANDB_PROJECT"] = "CodeShield"
+os.environ["WANDB_ENTITY"] = "CodeShield"
+os.environ["WANDB_PROJECT"] = "CerebRM-SFT-Coldstart"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
