@@ -14,7 +14,7 @@ class SFTParams:
     batch_size: int = 4
     deepspeed_config_path: str = "configs/deepspeed_config.json"
     gradient_accumulation_steps: int = 16
-    learning_rate: float = 1e-4
+    learning_rate: float = 5e-5
     logging_steps: int = 1
     lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 5e-6})
     lr_scheduler_type: str = "cosine_with_min_lr"
