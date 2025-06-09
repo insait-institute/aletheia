@@ -1,11 +1,13 @@
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict
 
-import datasets
 import hydra
+import polars as pl
 import torch
+from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 from vllm import LLM, SamplingParams
 
 from configs.markdownize_dataset_config import MDConfig
@@ -15,6 +17,17 @@ logging.basicConfig(
     level=logging.INFO,
 )
 log = logging.getLogger(__name__)
+LANG_MAP = {
+    "0": "js",
+    "1": "python",
+    "2": "ruby",
+    "3": "cpp",
+    "4": "c",
+    "5": "go",
+    "6": "java",
+    "7": "csharp",
+    "8": None,
+}
 
 MD_TEMPLATE = """<|im_start|>system 
 You are the founder and CEO of a successful startup that provides solutions to coding questions posed by your client, Alex. You work with your co-founder and an excellent software developer, Bob who comes up with answers to your client's coding questions. Due to excessive workload, Bob can only write the code that solves Alex's question, but is unable to provide an explanation of how his works or his thought process for arriving at the final solution. You are very strict about the quality of the answers provided to your clients, especially for the quality of the code and the explanations provided in the answers.
@@ -101,7 +114,7 @@ def clean_llm_output(output: str) -> str:
 
 def extract_final_answer(output: str) -> str:
     output = clean_llm_output(output)
-    final_answer = re.search(r"<FINAL_ANSWER>(.*?)</FINAL_ANSWER>", output, flags=re.DOTALL)
+    final_answer = output.split("<FINAL_ANSWER>")[-1].split(0).strip("</FINAL_ANSWER>")
     return final_answer.group(1).strip() if final_answer else ""
 
 
@@ -112,20 +125,19 @@ def run_llm(llm: LLM, sampling_params: SamplingParams, prompts: str):
     return [[y.text for y in x.outputs] for x in responses]
 
 
-@hydra.main(version_base=None, config_name="markdownize_dataset_config")
 def markdownize(cfg: MDConfig):
-    llm = LLM(cfg.model.name, trust_remote_code=True, tensor_parallel_size=torch.cuda.device_count())
+    llm = LLM(cfg.model.name, trust_remote_code=True, tensor_parallel_size=torch.cuda.device_count(), max_model_len=cfg.model.max_model_len)
     sampling_params = SamplingParams(
         temperature=cfg.sparams.temperature,
         max_tokens=cfg.sparams.max_tokens,
         n=cfg.sparams.n,
         seed=cfg.sparams.seed,
     )
-    data = datasets.load_dataset(cfg.data.name, trust_remote_code=True)
+    data = load_dataset(cfg.data.name, trust_remote_code=True)
 
     log.info(f"Processing column: {cfg.data.col}, cfg.data.split: {cfg.data.split}")
     # data[cfg.data.split] = data[cfg.data.split].select(range(100))
-    data[cfg.data.split] = data[cfg.data.split].map(lambda x: create_prompt(x, cfg.data.col))
+    data[cfg.data.split] = data[cfg.data.split].map(create_prompt, fn_kwargs={"col": cfg.data.col}, num_proc=os.cpu_count(), desc="Creating prompts for markdownization")
     log.info(f"Created {len(data[cfg.data.split])} prompts")
     md_responses = run_llm(llm, sampling_params, data[cfg.data.split]["prompt"])
     final_answers = [extract_final_answer(x) for x in md_responses]
@@ -133,13 +145,118 @@ def markdownize(cfg: MDConfig):
     data[cfg.data.split] = data[cfg.data.split].add_column(f"{cfg.data.col}_md", final_answers)
     data[cfg.data.split] = data[cfg.data.split].remove_columns(["prompt"])
     ds_short_name = cfg.data.name.split("/")[-1]
-    model_short_name = cfg.model.name.split("/")[-1].lower()
-    save_dir = Path(__file__).parent / f"MD_{ds_short_name}_{model_short_name}"
+    save_dir = Path(__file__).parent.parent / f"MD_{ds_short_name}"
     save_dir.mkdir(parents=True, exist_ok=True)
     log.info(f"Saving dataset to {save_dir}")
-    data[cfg.data.split].to_parquet(save_dir / f"{cfg.data.split}_{cfg.data.col}.parquet")
+    data[cfg.data.split].save_to_disk(save_dir / f"{cfg.data.split}_{cfg.data.col}", max_shard_size="5GB")
+    log.info(f"Dataset markdownized and saved to {save_dir / f'{cfg.data.split}_{cfg.data.col}'}")
+
+
+def filter_bobcode_by_count(example: Dict) -> bool:
+    count = example["output"].count("[BOB_CODE]")
+    return count == 1
+
+
+def replace_bobcode(example: Dict, col: str) -> Dict:
+    if example["language"] not in LANG_MAP or example["language"] == 8:
+        log.warning(f"Example with unsupported language: {example['language']}")
+        replacement = example[col]
+    replacement = f"```{LANG_MAP[example['language']]}\n{example[col]}\n```"
+    example[col] = example[f"{col}_md"].replace("[BOB_CODE]", replacement)
+    return example
+
+
+def combine(cfg: MDConfig):
+    ds_short_name = cfg.data.name.split("/")[-1]
+    save_dir = Path(__file__).parent.parent / f"MD_{ds_short_name}"
+    try:
+        train_chosen = load_from_disk(save_dir / "train_chosen")
+        train_rejected = load_from_disk(save_dir / "train_rejected")
+        test_chosen = load_from_disk(save_dir / "test_chosen")
+        test_rejected = load_from_disk(save_dir / "test_rejected")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Dataset not found in {save_dir}. Please run the markdownize step first.")
+    train_chosen = train_chosen.filter(
+        filter_bobcode_by_count,
+        num_proc=os.cpu_count(),
+        desc="Filtering [BOB_CODE] by count in train_chosen",
+    )
+    train_rejected = train_rejected.filter(
+        filter_bobcode_by_count,
+        num_proc=os.cpu_count(),
+        desc="Filtering [BOB_CODE] by count in train_rejected",
+    )
+    test_chosen = test_chosen.filter(
+        filter_bobcode_by_count,
+        num_proc=os.cpu_count(),
+        desc="Filtering [BOB_CODE] by count in test_chosen",
+    )
+    test_rejected = test_rejected.filter(
+        filter_bobcode_by_count,
+        num_proc=os.cpu_count(),
+        desc="Filtering [BOB_CODE] by count in test_rejected",
+    )
+
+    train_chosen = train_chosen.map(
+        replace_bobcode,
+        num_proc=os.cpu_count(),
+        fn_kwargs={"col": "chosen"},
+        desc="Replacing [BOB_CODE] in train_chosen",
+        remove_columns=["chosen_md"],
+    )
+    train_rejected = train_rejected.map(
+        replace_bobcode,
+        num_proc=os.cpu_count(),
+        fn_kwargs={"col": "rejected"},
+        desc="Replacing [BOB_CODE] in train_rejected",
+        remove_columns=["rejected_md"],
+    )
+    test_chosen = test_chosen.map(
+        replace_bobcode,
+        num_proc=os.cpu_count(),
+        fn_kwargs={"col": "chosen"},
+        desc="Replacing [BOB_CODE] in test_chosen",
+        remove_columns=["chosen_md"],
+    )
+    test_rejected = test_rejected.map(
+        replace_bobcode,
+        num_proc=os.cpu_count(),
+        fn_kwargs={"col": "rejected"},
+        desc="Replacing [BOB_CODE] in test_rejected",
+        remove_columns=["rejected_md"],
+    )
+
+    train_chosen = pl.from_arrow(train_chosen.data.table)
+    train_rejected = pl.from_arrow(train_rejected.data.table)
+    test_chosen = pl.from_arrow(test_chosen.data.table)
+    test_rejected = pl.from_arrow(test_rejected.data.table)
+
+    train = pl.concat([train_chosen, train_rejected], how="align")
+    test = pl.concat([train_chosen, test_rejected], how="align")
+
+    cpe_md = DatasetDict(
+        {
+            "train": Dataset(train.to_arrow()),
+            "test": Dataset(test.to_arrow()),
+        }
+    )
+    cpe_md
+    cpe_md.push_to_hub(
+        "CodeShield/CPE_Markdownized",
+        private=True,
+        max_shard_size="5GB",
+    )
+
+
+@hydra.main(version_base=None, config_name="markdownize_dataset_config")
+def main(cfg):
+    if cfg.mode == "markdownize":
+        markdownize(cfg)
+    elif cfg.mode == "combine":
+        combine(cfg)
+    else:
+        raise ValueError(f"Invalid mode: {cfg.mode}. Choose 'markdownize' or 'combine'")
 
 
 if __name__ == "__main__":
-    markdownize()
-    log.info("Markdownization completed successfully!")
+    main()
