@@ -17,15 +17,6 @@
             "adam_w_mode": true
         }
     },
-    "scheduler": {
-        "type": "WarmupCosineLR",
-        "params": {
-            "warmup_min_ratio": 0,
-            "cos_min_ratio": 0.1,
-            "warmup_num_steps": "auto",
-            "total_num_steps": "auto"
-        }
-    },
     "zero_optimization": {
         "stage": 3,
         "allgather_partitions": true,

@@ -11,12 +11,12 @@ class Data:
 
 @dataclass
 class GRPOParams:
-    batch_size: int = 32
+    batch_size: int = 16
     beta: float = 1e-3
     epsilon: float = 0.2
     epsilon_high: float = 0.4
     eval_batch_size: int = 16
-    gradient_accumulation_steps: int = 1
+    gradient_accumulation_steps: int = 16
     learning_rate: float = 1e-6
     logging_steps: int = 1
     # lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
@@ -43,7 +43,7 @@ class GenParams:
     vllm_server_host: str = "localhost"
     vllm_server_port: int = 8000
     vllm_server_timeout: int = 600
-    vllm_tensor_parallel_size: int = 4
+    vllm_tensor_parallel_size: int = 2
 
 
 @dataclass

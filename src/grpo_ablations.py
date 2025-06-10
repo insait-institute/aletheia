@@ -22,9 +22,6 @@ from configs.grpo_config import Config
 
 # dist.init_process_group(backend="nccl", init_method="env://", timeout=timedelta(hours=10))
 logging.basicConfig(level=logging.WARNING)
-loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-for logger in loggers:
-    logger.setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 wandb.login()
@@ -98,7 +95,7 @@ def soft_overlong_punishment(completion_ids, **kwargs):
 
 def phi_reward(completions, completion_ids, verdict, **kwargs):
     rewards = []
-    for completion, ids, ground_truth in (completions, completion_ids, verdict):
+    for completion, ids, ground_truth in zip(completions, completion_ids, verdict):
         L = len(ids)
         n = 5
         pattern = r"^<reason>\n.*?\n</reason>\n<solution>\n(.*?)\n</solution>$"
