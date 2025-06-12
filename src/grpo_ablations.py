@@ -71,7 +71,7 @@ def correctness_reward(completions, verdict, **kwargs):
 def format_reward(completions, **kwargs):
     pattern = r"^<reason>\n.*?\n</reason>\n<solution>\n(.*?)\n</solution>$"
     completion_contents = [completion[0]["content"].split("<|im_end|>")[0].strip() for completion in completions]
-    matches = [re.match(pattern, content) for content in completion_contents]
+    matches = [re.match(pattern, content, re.DOTALL) for content in completion_contents]
     return [0.0 if match and match.group(1) in ["Yes", "No"] else -1.0 for match in matches]
 
 
@@ -100,10 +100,10 @@ def phi_reward(completions, completion_ids, verdict, **kwargs):
         n = 5
         pattern = r"^<reason>\n.*?\n</reason>\n<solution>\n(.*?)\n</solution>$"
         completion_content = completion[0]["content"].split("<|im_end|>")[0].strip()
-        match = re.match(pattern, completion_content)
+        match = re.match(pattern, completion_content, re.DOTALL)
         if "<|im_end|>" not in completion[0]["content"]:
             R_acc_scaled = -0.5
-        elif match and match.group(1) in ["Yes", "No"]:
+        elif not (match and match.group(1) in ["Yes", "No"]):
             R_acc_scaled = -1.0
         else:
             answer = completion_content.split("<solution>")[-1].split("</solution")[0].strip()
@@ -111,12 +111,12 @@ def phi_reward(completions, completion_ids, verdict, **kwargs):
                 rho = min(1, max(L - PHI_ARGS["L_pos_control"], 0) / (PHI_ARGS["L_max"] - PHI_ARGS["L_pos_control"]))
                 R_max = 1.0
                 R_min = 0.5
-                R_acc_scaled = R_min + 0.5 * (R_max - R_min) * np.cos(np.pi * rho)
+                R_acc_scaled = (R_min + 0.5 * (R_max - R_min) * np.cos(np.pi * rho)).item()
             else:
                 rho = min(1, L / PHI_ARGS["L_neg_control"])
                 R_max = -0.5
                 R_min = -1.0
-                R_acc_scaled = R_min + 0.5 * (R_min - R_max) * np.cos(np.pi * rho)
+                R_acc_scaled = (R_min + 0.5 * (R_min - R_max) * np.cos(np.pi * rho)).item()
 
         n_grams = [tuple(ids[i : i + n]) for i in range(L - n + 1)]
         counts = Counter(n_grams)
@@ -137,6 +137,7 @@ def phi_reward(completions, completion_ids, verdict, **kwargs):
             R_rep = -max(ratio_type_repetition, ratio_max_freq)
 
         rewards.append(PHI_ARGS["W_acc"] * R_acc_scaled + PHI_ARGS["W_rep"] * R_rep)
+
     return rewards
 
 
