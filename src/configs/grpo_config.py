@@ -19,8 +19,7 @@ class GRPOParams:
     gradient_accumulation_steps: int = 32
     learning_rate: float = 1e-6
     logging_steps: int = 1
-    # lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
-    # lr_scheduler_type: str = "cosine_with_min_lr"
+    lr_scheduler_type: str = "constant_with_warmup"
     max_prompt_length: int = 6200
     model_name: str = "CodeShield/sft-qwen3-0.6b"
     num_epochs: int = 1
