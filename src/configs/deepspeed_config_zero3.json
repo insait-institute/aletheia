@@ -1,9 +1,9 @@
 {
     "fp16": {
-        "enabled": false
+        "enabled": "auto"
     },
     "bf16": {
-        "enabled": true
+        "enabled": "auto"
     },
     "checkpoint": {
         "use_node_local_storage": true

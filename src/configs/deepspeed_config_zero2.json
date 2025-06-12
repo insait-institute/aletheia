@@ -1,9 +1,9 @@
 {
     "fp16": {
-        "enabled": false
+        "enabled": "auto"
     },
     "bf16": {
-        "enabled": true
+        "enabled": "auto"
     },
     "checkpoint": {
         "use_node_local_storage": true
@@ -15,15 +15,6 @@
             "weight_decay": "auto",
             "torch_adam": true,
             "adam_w_mode": true
-        }
-    },
-    "scheduler": {
-        "type": "WarmupCosineLR",
-        "params": {
-            "warmup_min_ratio": 0,
-            "cos_min_ratio": 0.1,
-            "warmup_num_steps": "auto",
-            "total_num_steps": "auto"
         }
     },
     "zero_optimization": {

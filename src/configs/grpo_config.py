@@ -11,12 +11,12 @@ class Data:
 
 @dataclass
 class GRPOParams:
-    batch_size: int = 16
+    batch_size: int = 8
     beta: float = 1e-3
     epsilon: float = 0.2
     epsilon_high: float = 0.4
     eval_batch_size: int = 16
-    gradient_accumulation_steps: int = 16
+    gradient_accumulation_steps: int = 32
     learning_rate: float = 1e-6
     logging_steps: int = 1
     # lr_scheduler_kwargs: dict = field(default_factory=lambda: {"min_lr": 1e-5})
@@ -28,7 +28,7 @@ class GRPOParams:
     resume_training_if_possible: bool = True
     save_steps: float = 0.1
     seed: int = 42
-    use_bf16: bool = True
+    use_bf16: bool = False  # changed for kl
     warmup_ratio: float = 0.05
     weight_decay: float = 1e-2
 

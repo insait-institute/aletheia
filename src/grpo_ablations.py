@@ -213,6 +213,7 @@ def train(cfg: Config):
         scale_rewards=not cfg.ablation_params.loss_type == "dr_grpo",
         # Training parameters
         bf16=cfg.grpo_params.use_bf16,
+        bf16_full_eval=cfg.grpo_params.use_bf16,
         gradient_accumulation_steps=cfg.grpo_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
