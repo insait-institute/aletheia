@@ -142,7 +142,7 @@ def phi_reward(completions, completion_ids, verdict, **kwargs):
 
 
 def filter_by_origin(example, origin):
-    return example["origin"] == origin
+    return "_".join(example["instance_id"].split("_")[:-1]) == origin
 
 
 @hydra.main(version_base=None, config_name="grpo_config")
@@ -178,9 +178,9 @@ def train(cfg: Config):
 
     # Training on a subset of the data for ablations
     target_size = int(0.05 * len(train_data))
-    cpe_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": 0}, num_proc=NUM_WORKERS, desc="Filtering CPE data")
-    gp_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": 1}, num_proc=NUM_WORKERS, desc="Filtering GP data")
-    cpemd_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": 2}, num_proc=NUM_WORKERS, desc="Filtering CPE_MD data")
+    gp_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": "gp"}, num_proc=NUM_WORKERS, desc="Filtering GP data")
+    cpe_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": "cpe"}, num_proc=NUM_WORKERS, desc="Filtering CPE data")
+    cpemd_data = train_data.filter(filter_by_origin, fn_kwargs={"origin": "cpe_md"}, num_proc=NUM_WORKERS, desc="Filtering CPE_MD data")
     train_data = concatenate_datasets(
         [
             gp_data.shuffle(seed=cfg.grpo_params.seed).select(range(target_size // 2)),

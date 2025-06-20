@@ -101,7 +101,9 @@ def construct_prompts(example: Dict, col: str) -> List[Dict]:
         
 Does the response align with the judgement criteria? Answer only with 'Yes' or 'No'.""",
     }
+    generation_prompt = {"role": "assistant", "content": "<reason>\n"}
     prompt.append(user_prompt)
+    prompt.append(generation_prompt)
     example["prompt"] = prompt
     return example
 
@@ -118,23 +120,21 @@ def process_data(data: Dataset, col: Optional[str] = None) -> Dataset:
 
 
 def main():
-    general_pref = load_dataset("CodeShield/General-Preference")
+    gp = load_dataset("CodeShield/General-Preference")
     cpe_md = load_dataset("CodeShield/CPE_Markdownized_Final")
     cpe = load_dataset("CodeShield/Commit-Preference-Enhanced")
     # for feature in cpe_md["train"].column_names:
     #     cpe_md = cpe_md.cast_column(feature, cpe["train"].features[feature])
     # cpe_md.push_to_hub("CodeShield/CPE_Markdownized_Final", private=True, max_shard_size="5GB")
-    general_pref["train"] = general_pref["train"].add_column("origin", ["General Preference"] * len(general_pref["train"]))
-    general_pref["test"] = general_pref["test"].add_column("origin", ["General Preference"] * len(general_pref["test"]))
-    cpe["train"] = cpe["train"].add_column("origin", ["Commit Preference Enhanced"] * len(cpe["train"]))
-    cpe["test"] = cpe["test"].add_column("origin", ["Commit Preference Enhanced"] * len(cpe["test"]))
-    cpe_md["train"] = cpe_md["train"].add_column("origin", ["Markdownized Commit Preference Enhanced"] * len(cpe_md["train"]))
-    cpe_md["test"] = cpe_md["test"].add_column("origin", ["Markdownized Commit Preference Enhanced"] * len(cpe_md["test"]))
+    gp["train"] = gp["train"].add_column("instance_id", [f"gp_{i}" for i in range(len(gp["train"]))])
+    gp["test"] = gp["test"].add_column("instance_id", [f"gp_{i}" for i in range(len(gp["test"]))])
+    cpe["train"] = cpe["train"].add_column("instance_id", [f"cpe_{i}" for i in range(len(cpe["train"]))])
+    cpe["test"] = cpe["test"].add_column("instance_id", [f"cpe_{i}" for i in range(len(cpe["test"]))])
+    cpe_md["train"] = cpe_md["train"].add_column("instance_id", [f"cpe_md_{i}" for i in range(len(cpe_md["train"]))])
+    cpe_md["test"] = cpe_md["test"].add_column("instance_id", [f"cpe_md_{i}" for i in range(len(cpe_md["test"]))])
 
-    data_train = concatenate_datasets([general_pref["train"], cpe["train"], cpe_md["train"]])
-    data_test = concatenate_datasets([general_pref["test"], cpe["test"], cpe_md["test"]])
-    data_train = data_train.class_encode_column("origin")
-    data_test = data_test.class_encode_column("origin")
+    data_train = concatenate_datasets([gp["train"], cpe["train"], cpe_md["train"]])
+    data_test = concatenate_datasets([gp["test"], cpe["test"], cpe_md["test"]])
 
     aspect_map = {i: name for i, name in enumerate(data_train.features["aspect"].names)}
 
