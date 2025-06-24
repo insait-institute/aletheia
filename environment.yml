@@ -47,3 +47,4 @@ dependencies:
     - vllm==0.8.5.post1
     - wandb==0.19.9
     - zstandard==0.23.0
+    - xlsxwriter==3.2.5
