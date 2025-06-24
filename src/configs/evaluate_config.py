@@ -6,13 +6,14 @@ from hydra.core.config_store import ConfigStore
 @dataclass
 class Data:
     path: str = "CodeShield/RLData_RM"
-    split: str = "cpe_md"
+    origin: str = "cpe_md"
     subset: float = 0.25
 
 
 @dataclass
 class Model:
     name: str = "CodeShield/sft-qwen3-0.6b"
+    N: int = 8
 
 
 @dataclass
