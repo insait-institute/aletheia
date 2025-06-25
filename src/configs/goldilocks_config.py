@@ -10,6 +10,7 @@ class Inference:
     output_dir: str = "outputs/goldilocks"
     shard: int = 0
     total_shards: int = 4
+    goldilocks_type: str = "all"  # all (selects 70k enhanced, 50k commit preference and all genpref) or commitpref (selects all commitpref)
 
 
 @dataclass
