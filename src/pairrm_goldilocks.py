@@ -137,10 +137,11 @@ def main(cfg: Config) -> None:
         trust_remote_code=True,
         tensor_parallel_size=1,
         gpu_memory_utilization=0.95,
+        max_model_len=12000,
     )
     sampling_params = SamplingParams(
         temperature=0.6,
-        max_tokens=8192,
+        max_tokens=4096,
         n=cfg.inference.N,
         seed=42,
         skip_special_tokens=False,
