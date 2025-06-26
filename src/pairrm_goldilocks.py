@@ -154,6 +154,7 @@ def main(cfg: Config) -> None:
     log.info(f"Running inference on shard {cfg.inference.shard + 1}/{cfg.inference.total_shards}: {len(prompts)} prompts")
     responses = llm.chat(prompts, sampling_params, continue_final_message=True, add_generation_prompt=False)
     response_texts = [[nth.text for nth in response.outputs] for response in responses]
+    num_tokens = [[nth.token_ids for nth in response.outputs] for response in responses]
     BASE_DIR = Path(__file__).parent.parent / cfg.inference.output_dir / cfg.inference.goldilocks_type
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     model_short_name = cfg.inference.model_name.split("/")[-1].split("-")[-1]
@@ -169,6 +170,7 @@ def main(cfg: Config) -> None:
 
     data = data.add_column("strict_accuracy", group_accuracy_strict)
     data = data.add_column("relaxed_accuracy", group_accuracy_relaxed)
+    data = data.add_column("num_tokens", [str(x) for x in num_tokens])
     data = data.add_column("final_answers", [str(ans) for ans in final_answers])
 
     df = pl.from_arrow(data.data.table)
