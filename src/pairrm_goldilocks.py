@@ -154,13 +154,13 @@ def main(cfg: Config) -> None:
     log.info(f"Running inference on shard {cfg.inference.shard + 1}/{cfg.inference.total_shards}: {len(prompts)} prompts")
     responses = llm.chat(prompts, sampling_params, continue_final_message=True, add_generation_prompt=False)
     response_texts = [[nth.text for nth in response.outputs] for response in responses]
-    num_tokens = [[nth.token_ids for nth in response.outputs] for response in responses]
-    BASE_DIR = Path(__file__).parent.parent / cfg.inference.output_dir / cfg.inference.goldilocks_type
+    num_tokens = [[len(nth.token_ids) for nth in response.outputs] for response in responses]
+    BASE_DIR = Path(__file__).parent.parent / cfg.inference.output_dir / f"{cfg.inference.goldilocks_type}_2"
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     model_short_name = cfg.inference.model_name.split("/")[-1].split("-")[-1]
     responses_outfile = BASE_DIR / f"reasoning_traces_shard_{cfg.inference.shard}_{model_short_name}.pkl"
     with open(responses_outfile, "wb") as f:
-        pickle.dump({i: traces for i, traces in enumerate(response_texts)}, f)
+        pickle.dump({i: (traces, correct_ans) for i, (traces, correct_ans) in enumerate(zip(response_texts, data["correct_ans"]))}, f)
     final_answers = [[get_answer(text) for text in response] for response in response_texts]
     correctness_strict = [score_answers(ans, c_ans) for ans, c_ans in zip(final_answers, data["correct_ans"])]
     group_accuracy_strict = [float(np.mean(corr)) for corr in correctness_strict]
