@@ -18,6 +18,40 @@ from datatrove.utils.typeshelper import Languages
 from configs.mhd_config import Config
 
 
+def _dict_to_str_adapter(self, data: dict, path: str, id_in_file: int | str):
+    """
+    The default data adapter to adapt input data into the datatrove Document format
+
+    Args:
+        data: a dictionary with the "raw" representation of the data
+        path: file path or source for this sample
+        id_in_file: its id in this particular file or source
+
+    Returns: a dictionary with text, id, media and metadata fields
+
+    """
+    metadata = data.pop("metadata", {})
+    if isinstance(metadata, str):
+        import json
+
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            pass
+    if not isinstance(metadata, dict):
+        metadata = {"metadata": metadata}
+    text = data.get(self.text_key, "")
+    if isinstance(text, list) and isinstance(text[0], dict):
+        assert text[1]["role"] == "user", "Expected the second dict to be a user prompt"
+        text = text[1]["content"]  # assuming the first dict is a system prompt
+    return {
+        "text": text,
+        "id": data.pop(self.id_key, f"{path}/{id_in_file}"),
+        "media": data.pop("media", []),
+        "metadata": metadata | data,  # remaining data goes into metadata
+    }
+
+
 @hydra.main(version_base=None, config_name="mhd_config")
 def main(cfg: Config):
     # you can also change ngrams or the number of buckets and their size here
@@ -40,7 +74,7 @@ def main(cfg: Config):
 
     TOTAL_TASKS = cfg.basics.total_tasks
 
-    INPUT_READER = HuggingFaceDatasetReader(DATA_NAME, text_key=cfg.data.text_key, dataset_options={"split": "train"}, doc_progress=True)
+    INPUT_READER = HuggingFaceDatasetReader(DATA_NAME, adapter=_dict_to_str_adapter, text_key=cfg.data.text_key, dataset_options={"split": "train"}, doc_progress=True)
 
     os.makedirs(MINHASH_BASE_PATH, exist_ok=True)
     os.makedirs(LOGS_FOLDER, exist_ok=True)
@@ -56,13 +90,13 @@ def main(cfg: Config):
             MinhashDedupSignature(output_folder=f"{MINHASH_BASE_PATH}/signatures", config=minhash_config, language=Languages.english),
         ],
         tasks=TOTAL_TASKS,
-        time="120:00:00",
+        time="24:00:00",
         partition="batch",
         logging_dir=f"{LOGS_FOLDER}/signatures",
         slurm_logs_folder=f"{LOCAL_LOGS_FOLDER}/signatures/slurm_logs",
         mem_per_cpu_gb=3,
         cpus_per_task=2,
-        workers=16,
+        workers=8,
         sbatch_args={
             "nodelist": cfg.slurm.nodelist,
             "exclude": cfg.slurm.exclude_nodes,
@@ -80,12 +114,12 @@ def main(cfg: Config):
             ),
         ],
         tasks=minhash_config.num_buckets,  # 14
-        time="120:00:00",
+        time="4:00:00",
         partition="batch",
         logging_dir=f"{LOGS_FOLDER}/buckets",
         depends=stage1,
         slurm_logs_folder=f"{LOCAL_LOGS_FOLDER}/buckets/slurm_logs",
-        workers=16,
+        workers=8,
         mem_per_cpu_gb=2,
         cpus_per_task=2,
         sbatch_args={
@@ -105,7 +139,7 @@ def main(cfg: Config):
             ),
         ],
         tasks=1,
-        time="120:00:00",
+        time="4:00:00",
         partition="batch",
         logging_dir=f"{LOGS_FOLDER}/clusters",
         mem_per_cpu_gb=35,
@@ -138,13 +172,13 @@ def main(cfg: Config):
             ),
         ],
         tasks=TOTAL_TASKS,
-        time="72:00:00",
+        time="4:00:00",
         partition="batch",
         logging_dir=f"{LOGS_FOLDER}/filter",
         depends=stage3,
         slurm_logs_folder=f"{LOCAL_LOGS_FOLDER}/filter/slurm_logs",
         mem_per_cpu_gb=8,
-        workers=16,
+        workers=8,
         cpus_per_task=2,
         sbatch_args={
             "nodelist": cfg.slurm.nodelist,

@@ -6,31 +6,31 @@ from hydra.core.config_store import ConfigStore
 
 @dataclass
 class Basics:
-    scratch_dir: str = f"/scratch/{os.getenv('USER')}"
-    output_base: str = "coldstart_data_dedup"
+    scratch_dir: str = f"/work/{os.getenv('USER')}"
+    output_base: str = "dedup"
     logs_folder: str = "SlurmLogs/dedup_logs"
     local_logs_folder: str = "SlurmLogs/dedup_local_logs"
-    total_tasks: int = 32
+    total_tasks: int = 8
 
 
 @dataclass
 class Data:
-    model_name: str = "rank1"
-    dataset_prefix: str = "CodeShield/rank1_dedupe"
-    dataset_name: str = "CodeShield/rank1_predupe"
-    text_key: str = "messages"
+    model_name: str = "coderpile"
+    dataset_prefix: str = "wetsoledrysoul/CoderPile-Annot-Set"
+    dataset_name: str = "wetsoledrysoul/CoderPile-Annot-Set"
+    text_key: str = "prompt"
 
 
 @dataclass
 class Slurm:
     nodelist: str = "msp3-7"
-    exclude_nodes: str = "gcp-eu-1,gcp-eu-2,gcpl4-eu-0,gcpl4-eu-1,gcpl4-eu-2,gcpl4-eu-3,gcpl4-eu-4,gcpl4-eu-5,gcpl4-eu-6,gcpl4-eu-7"
+    exclude_nodes: str = "msp3-1"
 
 
 @dataclass
 class Minhash:
     precision: int = 64
-    num_buckets: int = 64
+    num_buckets: int = 32
     hashes_per_bucket: int = 4
     n_grams: int = 5
     seed: int = 42
