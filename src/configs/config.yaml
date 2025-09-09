@@ -1,0 +1,3 @@
+defaults:
+    - method: null
+    - model: ${method}/${model}

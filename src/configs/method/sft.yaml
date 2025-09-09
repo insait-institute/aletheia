@@ -1,0 +1,28 @@
+# @package _global_
+
+data:
+    train: CodeShield/coldstart_curriculum_v2
+
+sft_params:
+    deepspeed_config_path: configs/deepspeed_config.json
+    learning_rate: 5e-5
+    logging_steps: 1
+    lr_scheduler_kwargs: 
+        min_lr: 5e-6
+    lr_scheduler_type: cosine_with_min_lr
+    max_length: 4096
+    num_epochs: 1
+    overwrite_output_dir: True
+    resume_training_if_possible: True
+    save_steps: 0.25
+    seed: 42
+    tp_size: 0
+    use_bf16: True
+    warmup_ratio: 0.05
+    weight_decay: 1e-2
+
+wandb_params:
+    log_level: info
+    run_name: sft-coldstart-test-run
+
+model: null

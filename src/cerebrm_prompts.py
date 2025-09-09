@@ -1,0 +1,24 @@
+LIST_REWARD_PROMPT = """
+You are an expert judge of coding problems. Given a coding problem and multiple candidate solutions, your task is to evaluate the correctness of each solution based on the problem description. Your evaluation should solely be based on the functional correctness of the codes. It is guaranteed that one and only one of the candidates is completely correct. Here is the coding question followed by the candidate solutions:
+[QUESTION]
+{question}
+[/QUESTION]
+{candidates}
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Do not provide any explanations or additional text. Your response should be exactly one of the options without any extra characters or spaces. Anything else will be considered invalid.
+"""
+JUDGELRM_PROMPT = """
+You are an expert judge of coding problems. Given a coding problem and two candidate solutions, your task is to evaluate the correctness of each solution based on the problem description. Your evaluation should solely be based on the functional correctness of the codes. It is guaranteed that one and only one of the candidates is completely correct. Here is the coding question followed by the candidate solutions:
+[QUESTION]
+{question}
+[/QUESTION]
+{candidates}
+You are to assign a score between 0 and 10 to each candidate, with 10 indicating a perfect solution that passes all test cases, 5 indicating a solution that would pass some test cases but not all, and 0 indicating a solution that fails all test cases. Output your final answer in the format \\boxed{{[x,y]}}. Do not provide any explanations or additional text. Anything else will be considered invalid.
+"""
+DS_GRM_PROMPT = """
+You are an expert judge of coding problems. Given a coding problem and multiple candidate solutions, your task is to evaluate the correctness of each solution based on the problem description. Your evaluation should solely be based on the functional correctness of the codes. It is guaranteed that one and only one of the candidates is completely correct. Here is the coding question followed by the candidate solutions:
+[QUESTION]
+{question}
+[/QUESTION]
+{candidates}
+You are to assign a score between 0 and 10 to EACH candidate, with 10 indicating a perfect solution that passes all test cases, 5 indicating a solution that would pass some test cases but not all, and 0 indicating a solution that fails all test cases. Output your final answer in the format \\boxed{{[x,y,z...]}} depending on the number of candidates. Do not provide any explanations or additional text. Anything else will be considered invalid.
+"""

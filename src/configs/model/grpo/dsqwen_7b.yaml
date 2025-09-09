@@ -1,0 +1,10 @@
+# @package _global_
+
+grpo_params:
+    model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    batch_size: 1
+    gradient_accumulation_steps: 32
+
+gen_params:
+    vllm_gpu_memory_utilization: 0.25
+    vllm_tensor_parallel_size: 1

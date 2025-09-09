@@ -1,0 +1,6 @@
+# @package _global_
+
+sft_params:
+    model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+    batch_size: 4
+    gradient_accumulation_steps: 8

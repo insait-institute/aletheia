@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM, SFTConfig, SFTTrainer
 
 import wandb
-from configs.sft_coldstart_config import Config
+from configs.config import Config
 
 CHAT_TEMPLATE = """
 {%- for message in messages %}
@@ -69,24 +69,24 @@ def tokenize(examples, tokenizer, max_length):
     return tokenized_messages
 
 
-@hydra.main(version_base=None, config_name="sft_coldstart_config")
+@hydra.main(version_base=None, config_name="config")
 def train(cfg: Config) -> None:
     cpu_count = os.cpu_count()
     gpu_count = torch.cuda.device_count()
-    model_short_name = cfg.sft_params.model_name.split("/")[-1].lower().replace("-base", "")
+    model_short_name = cfg.model.sft_params.model_name.split("/")[-1].lower().replace("-base", "")
     output_dir = (Path(__file__).parent.parent / f"coldstart_output/{model_short_name}").as_posix()
     hub_model_id = f"CodeShield/sft-{model_short_name}"
 
-    train_data = load_dataset(cfg.data.path, split="train", num_proc=cpu_count)
+    train_data = load_dataset(cfg.method.data.train, split="train", num_proc=cpu_count)
     stage_1 = train_data.filter(lambda x: x["currciulum_stage"] == "stage_1", num_proc=os.cpu_count())
     stage_2 = train_data.filter(lambda x: x["currciulum_stage"] == "stage_2", num_proc=os.cpu_count())
-    stage_1 = stage_1.shuffle(seed=cfg.sft_params.seed)
-    stage_2 = stage_2.shuffle(seed=cfg.sft_params.seed)
+    stage_1 = stage_1.shuffle(seed=cfg.method.sft_params.seed)
+    stage_2 = stage_2.shuffle(seed=cfg.method.sft_params.seed)
     train_data = concatenate_datasets([stage_1, stage_2])
 
-    log.info(f"Loaded data from {cfg.data.path}")
-    if cfg.sft_params.max_length:
-        log.info(f"Filtered data to max length {cfg.sft_params.max_length}")
+    log.info(f"Loaded data from {cfg.method.data.train}")
+    if cfg.method.sft_params.max_length:
+        log.info(f"Filtered data to max length {cfg.method.sft_params.max_length}")
     log.info(f"Train data size: {len(train_data)}")
     log.info(f"Output directory: {output_dir}")
     log.info(f"Number of CPUs: {cpu_count}")
@@ -95,37 +95,37 @@ def train(cfg: Config) -> None:
     # Updated model loading to use explicit BF16 tensor type
     config = SFTConfig(
         output_dir=f"{output_dir}/intermediate_checkpoints",
-        overwrite_output_dir=cfg.sft_params.overwrite_output_dir,
+        overwrite_output_dir=cfg.method.sft_params.overwrite_output_dir,
         # Training parameters
-        bf16=cfg.sft_params.use_bf16,
+        bf16=cfg.method.sft_params.use_bf16,
         eval_strategy="no",
-        gradient_accumulation_steps=cfg.sft_params.gradient_accumulation_steps,
+        gradient_accumulation_steps=cfg.model.sft_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        learning_rate=cfg.sft_params.learning_rate,
-        lr_scheduler_type=cfg.sft_params.lr_scheduler_type,
-        lr_scheduler_kwargs=cfg.sft_params.lr_scheduler_kwargs,
-        max_length=cfg.sft_params.max_length,
-        num_train_epochs=cfg.sft_params.num_epochs,
-        per_device_train_batch_size=cfg.sft_params.batch_size,
-        per_device_eval_batch_size=cfg.sft_params.batch_size,
-        seed=cfg.sft_params.seed,
-        warmup_ratio=cfg.sft_params.warmup_ratio,
-        weight_decay=cfg.sft_params.weight_decay,
+        learning_rate=cfg.method.sft_params.learning_rate,
+        lr_scheduler_type=cfg.method.sft_params.lr_scheduler_type,
+        lr_scheduler_kwargs=cfg.method.sft_params.lr_scheduler_kwargs,
+        max_length=cfg.method.sft_params.max_length,
+        num_train_epochs=cfg.method.sft_params.num_epochs,
+        per_device_train_batch_size=cfg.model.sft_params.batch_size,
+        per_device_eval_batch_size=cfg.model.sft_params.batch_size,
+        seed=cfg.method.sft_params.seed,
+        warmup_ratio=cfg.method.sft_params.warmup_ratio,
+        weight_decay=cfg.method.sft_params.weight_decay,
         # Logging parameters
-        log_level=cfg.wandb_params.log_level,
+        log_level=cfg.method.wandb_params.log_level,
         log_level_replica="critical",
         log_on_each_node=False,
-        logging_steps=cfg.sft_params.logging_steps,
+        logging_steps=cfg.method.sft_params.logging_steps,
         report_to="wandb",
-        run_name=cfg.wandb_params.run_name,
+        run_name=cfg.method.wandb_params.run_name,
         # Saving parameters
         hub_model_id=hub_model_id,
         hub_private_repo=True,
         save_strategy="steps",
-        save_steps=cfg.sft_params.save_steps,
+        save_steps=cfg.method.sft_params.save_steps,
         # Data parameters
-        data_seed=cfg.sft_params.seed,
+        data_seed=cfg.method.sft_params.seed,
         dataloader_drop_last=True,
         dataloader_num_workers=len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else cpu_count,
         dataset_kwargs={"skip_prepare_dataset": True},
@@ -133,9 +133,9 @@ def train(cfg: Config) -> None:
         # Miscellaneous parameters
         ddp_backend="nccl",
         ddp_timeout=36000,
-        deepspeed=cfg.sft_params.deepspeed_config_path,
+        deepspeed=cfg.method.sft_params.deepspeed_config_path,
     )
-    tokenizer = AutoTokenizer.from_pretrained(cfg.sft_params.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.model.sft_params.model_name)
     tokenizer.chat_template = CHAT_TEMPLATE.strip()
     tokenizer.add_special_tokens(
         {
@@ -147,7 +147,7 @@ def train(cfg: Config) -> None:
     )
     log.info(f"Tokenizer special tokens: {tokenizer.special_tokens_map}")
     model = AutoModelForCausalLM.from_pretrained(
-        cfg.sft_params.model_name,
+        cfg.model.sft_params.model_name,
         torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2",
     )
@@ -158,7 +158,9 @@ def train(cfg: Config) -> None:
     log.info(f"Model vocab size: {model.config.vocab_size}")
     log.info(f"Model pad token ID: {model.config.pad_token_id}")
 
-    train_data = train_data.map(tokenize, fn_kwargs={"tokenizer": tokenizer, "max_length": cfg.sft_params.max_length}, desc="Tokenizing data", batched=True, remove_columns=train_data.column_names)
+    train_data = train_data.map(
+        tokenize, fn_kwargs={"tokenizer": tokenizer, "max_length": cfg.model.sft_params.max_length}, desc="Tokenizing data", batched=True, remove_columns=train_data.column_names
+    )
     log.info(f"Sample tokenized data\n-------\n{tokenizer.decode(train_data[0]['input_ids'])}\n-------")
 
     response_template = "<|im_start|>assistant\n"
