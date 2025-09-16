@@ -21,7 +21,6 @@ class GRPOParams:
     max_prompt_length: int = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
     save_steps: float = None
     seed: int = None
     use_bf16: bool = None
@@ -33,6 +32,9 @@ class GRPOParams:
     model_path: str = None
     batch_size: int = None
     gradient_accumulation_steps: int = None
+    importance_sampling_level: str = None
+    generate_every: int = None
+    scale_rewards: str = None
 
 
 @dataclass

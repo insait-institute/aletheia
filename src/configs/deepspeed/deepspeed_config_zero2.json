@@ -1,21 +1,9 @@
 {
     "fp16": {
-        "enabled": "auto"
+        "enabled": false
     },
     "bf16": {
-        "enabled": "auto"
-    },
-    "checkpoint": {
-        "use_node_local_storage": true
-    },
-    "optimizer": {
-        "type": "AdamW",
-        "params": {
-            "lr": "auto",
-            "weight_decay": "auto",
-            "torch_adam": true,
-            "adam_w_mode": true
-        }
+        "enabled": true
     },
     "zero_optimization": {
         "stage": 2,
@@ -28,8 +16,16 @@
     },
     "gradient_accumulation_steps": "auto",
     "gradient_clipping": 1,
-    "steps_per_print": 10,
+    "steps_per_print": 1,
     "train_batch_size": "auto",
     "train_micro_batch_size_per_gpu": "auto",
-    "wall_clock_breakdown": false
+    "wall_clock_breakdown": false,
+    "flops_profiler": {
+        "enabled": true,
+        "profile_step": 1,
+        "module_depth": -1,
+        "top_modules": 1,
+        "detailed": true,
+        "output_file": "flops_profile"
+    }
 }

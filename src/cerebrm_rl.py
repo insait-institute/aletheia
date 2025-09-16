@@ -28,6 +28,25 @@ def _filter_pairs(example):
     return example["num_candidates"] == 2
 
 
+def is_valid_checkpoint(checkpoint_dir: str) -> bool:
+    if not os.path.isdir(checkpoint_dir):
+        return False
+
+    required_files = ["config.json", "tokenizer.json"]
+    model_files = ["pytorch_model.bin", "model.safetensors"]
+
+    # Check required config + tokenizer
+    for file in required_files:
+        if not os.path.isfile(os.path.join(checkpoint_dir, file)):
+            return False
+
+    # At least one model weight file must exist
+    if not any(os.path.isfile(os.path.join(checkpoint_dir, mf)) for mf in model_files):
+        return False
+
+    return True
+
+
 def _create_prompts(example, reward_type):
     potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
     candidates = [f"[RESPONSE_{i[2]}]\n{candidate}\n[/RESPONSE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
@@ -42,6 +61,7 @@ def _create_prompts(example, reward_type):
                     valid_options=", ".join(potential_answers),
                 ),
             },
+            {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
         ]
     elif reward_type == "judge_lrm":
         example["prompt"] = [
@@ -52,6 +72,7 @@ def _create_prompts(example, reward_type):
                     candidates=candidate_str,
                 ),
             },
+            {"role": "assistant", "content": "<think>\n"},
         ]
     elif reward_type == "ds_grm":
         example["prompt"] = [
@@ -62,6 +83,7 @@ def _create_prompts(example, reward_type):
                     candidates=candidate_str,
                 ),
             },
+            {"role": "assistant", "content": "<think>\n"},
         ]
     return example
 
@@ -80,11 +102,11 @@ def train(cfg: Config):
     elif cfg.reward_type == "judge_lrm":
         REWARD_FUNC = [cerebrm_rewards.judgelrm_content_reward, cerebrm_rewards.judgelrm_format_reward]
     elif cfg.reward_type == "ds_grm":
-        REWARD_FUNC = [cerebrm_rewards.list_score_correctness, cerebrm_rewards.list_score_max10, cerebrm_rewards.format_reward]
+        REWARD_FUNC = [cerebrm_rewards.list_score_on_10, cerebrm_rewards.format_reward]
     else:
         raise ValueError(f"Unknown reward type: {cfg.reward_type}. Choose from 'list_em', 'list_dist', 'judge_lrm', 'ds_grm'.")
 
-    if cfg.grpo_params.loss_type == "dapo":
+    if cfg.grpo_params.loss_type in ["dapo", "bnpo"]:
         REWARD_FUNC.append(cerebrm_rewards.soft_overlong_punishment)
 
     if cfg.grpo_params.kl_penalty == "dynamic" and cfg.grpo_params.ref_model_sync_steps <= 0:
@@ -94,18 +116,22 @@ def train(cfg: Config):
     if cfg.reward_type == "judge_lrm":
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs")
 
-    eval_data = load_dataset(cfg.data.val)["Full"] if cfg.data.val else None
+    if cfg.data.val == cfg.data.train:
+        eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
+    else:
+        eval_data = load_dataset(cfg.data.val)["Full"] if cfg.data.val else None
+
     train_data = train_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    eval_data = eval_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+
     log.info(f"Loaded data from {cfg.data.train}")
     log.info(f"Train size: {len(train_data)}")
     log.info(f"Eval size: {len(eval_data) if eval_data else 'N/A'}")
     log.info(f"Output directory: {output_dir}")
     log.info(f"Number of CPUs: {NUM_WORKERS}")
     log.info(f"Number of GPUs: {os.environ.get('WORLD_SIZE', torch.cuda.device_count())}")
-
-    # Updated model loading to use explicit BF16 tensor type
     config = GRPOConfig(
-        model_init_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": torch.bfloat16 if cfg.grpo_params.use_bf16 else torch.float32},
+        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
         # GRPO parameters
         beta=0.0 if cfg.grpo_params.kl_penalty == "no" else cfg.grpo_params.beta,
         epsilon=cfg.grpo_params.epsilon,
@@ -116,7 +142,6 @@ def train(cfg: Config):
         sync_ref_model=cfg.grpo_params.kl_penalty == "dynamic",
         ref_model_mixup_alpha=cfg.grpo_params.ref_model_mixup_alpha,
         ref_model_sync_steps=cfg.grpo_params.ref_model_sync_steps,
-        scale_rewards=not cfg.grpo_params.loss_type == "dr_grpo",
         # Training parameters
         bf16=cfg.grpo_params.use_bf16,
         bf16_full_eval=cfg.grpo_params.use_bf16,
@@ -155,7 +180,7 @@ def train(cfg: Config):
         max_completion_length=cfg.gen_params.max_completion_length,
         num_generations=cfg.gen_params.num_generations,
         temperature=cfg.gen_params.temperature,
-        use_liger_loss=True,
+        use_liger_loss=(not cfg.grpo_params.importance_sampling_level == "sequence" and not cfg.grpo_params.loss_type == "dapo"),
         use_vllm=True,
         vllm_mode="colocate",
         vllm_server_host=cfg.gen_params.vllm_server_host,
@@ -163,9 +188,12 @@ def train(cfg: Config):
         vllm_server_timeout=cfg.gen_params.vllm_server_timeout,
         vllm_tensor_parallel_size=cfg.gen_params.vllm_tensor_parallel_size,
         vllm_gpu_memory_utilization=cfg.gen_params.vllm_gpu_memory_utilization,
-        # Miscellaneous parameters
-        ddp_backend="nccl",
-        ddp_timeout=36000,
+        vllm_enable_sleep_mode=True,
+        # Changes for speedup
+        steps_per_generation=cfg.grpo_params.gradient_accumulation_steps * cfg.grpo_params.generate_every,
+        importance_sampling_level=cfg.grpo_params.importance_sampling_level,
+        scale_rewards=cfg.grpo_params.scale_rewards,
+        shuffle_dataset=True,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.grpo_params.model_path)
@@ -178,7 +206,7 @@ def train(cfg: Config):
         reward_funcs=REWARD_FUNC,
     )
     # Start training with explicit checkpoint resumption
-    trainer.train()
+    trainer.train(resume_from_checkpoint=is_valid_checkpoint(config.output_dir))
     log.info("Training completed.")
     trainer.save_model(output_dir)
     log.info(f"Model trained and saved to {output_dir}")

@@ -1,7 +1,7 @@
 # @package _global_
 
 grpo_params:
-    model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen1.5B
+    model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
     batch_size: 1
     gradient_accumulation_steps: 32
 

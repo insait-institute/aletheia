@@ -1,37 +1,39 @@
 # @package _global_
 data:
     train: CodeShield/CerebRM-Dataset
-    val: CodeShield/code-reward-bench
+    val: CodeShield/CerebRM-Dataset
 grpo_params:
     beta: 1e-3
     epsilon: 0.2
-    epsilon_high: 0.4
+    epsilon_high: 0.28
     eval_batch_size: 16
     learning_rate: 1e-6
     logging_steps: 1
-    loss_type: bnpo
+    loss_type: dapo
     lr_scheduler_type: constant_with_warmup
     max_prompt_length: 4096
     num_epochs: 1
-    overwrite_output_dir: True
-    resume_training_if_possible: True
-    save_steps: 0.1
+    overwrite_output_dir: False
+    save_steps: 0.05
     seed: 42
     use_bf16: True
     warmup_ratio: 0.05
     weight_decay: 1e-2
-    kl_penalty: no
-    ref_model_sync_steps: 0
-    ref_model_mixup_alpha: 0.0
+    kl_penalty: dynamic
+    ref_model_sync_steps: 100
+    ref_model_mixup_alpha: 1.0
+    generate_every: 1
+    importance_sampling_level: token
+    scale_rewards: group
 
 gen_params:
-    max_completion_length:  8192
-    num_generations:  16
-    temperature: 0.6
+    max_completion_length: 8192
+    num_generations: 16
+    temperature: 1.0
     vllm_dtype: bfloat16
     vllm_server_host: localhost
-    vllm_server_port:  8000
-    vllm_server_timeout:  600
+    vllm_server_port: 8000
+    vllm_server_timeout: 600
 
 wandb_params:
     log_level: info
