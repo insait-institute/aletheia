@@ -5,10 +5,9 @@ from typing import List
 import numpy as np
 
 DAPO_ARGS = {"L_max": 7168, "L_cache": 1024}
-IDX_TO_GT = {0: "[[A]]", 1: "[[B]]", 2: "[[C]]", 3: "[[D]]", 4: "[[E]]"}
 
 
-def extract_boxed_contents(text: str) -> List[int]:
+def extract_boxed_contents_score10(text: str) -> List[int]:
     """
     Extracts all contents within \\boxed{...} from a given text string,
     after normalizing braces.
@@ -18,7 +17,22 @@ def extract_boxed_contents(text: str) -> List[int]:
     matches = re.search(pattern, text)
     try:
         matches = ast.literal_eval(matches.group(1))
-        assert isinstance(matches, list) and all(isinstance(x, int) for x in matches) and all(0 <= x <= 10 for x in matches)
+        assert isinstance(matches, list) and all(isinstance(x, int) for x in matches)
+    except Exception:
+        matches = []
+    return matches
+
+
+def extract_boxed_contents_list(text: str) -> List[int]:
+    """
+    Extracts all contents within \\boxed{...} from a given text string,
+    after normalizing braces.
+    """
+    # Match \boxed{...} with non-greedy content
+    pattern = r"\\boxed\{(.*?)\}"
+    matches = re.search(pattern, text)
+    try:
+        matches = matches.group(1)
     except Exception:
         matches = []
     return matches
@@ -38,7 +52,7 @@ def soft_overlong_punishment(completion_ids, **kwargs):
     return rewards
 
 
-def format_reward(completions, **kwargs):
+def list_format_reward(completions, num_candidates, **kwargs):
     """
     Assigns a reward based on whether the model's output is correctly formatted.
     0 if correctly formatted, else -1
@@ -47,9 +61,15 @@ def format_reward(completions, **kwargs):
     Returns:
         List[float]: A list of rewards for each completion.
     """
-    pattern = r"^<think>(?!.*<think>)(.*?)</think>.*$"
+    pattern_dict = {
+        2: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[AB]\]\]}$",
+        3: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABC]\]\]}$",
+        4: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABCD]\]\]}$",
+        5: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABCDE]\]\]}$",
+    }
+
     completion_contents = [completion[0]["content"].strip() for completion in completions]
-    matches = [re.match(pattern, content, re.DOTALL) for content in completion_contents]
+    matches = [re.match(pattern_dict[nc], content, re.DOTALL) for content, nc in zip(completion_contents, num_candidates)]
     return [0.0 if match else -1.0 for match in matches]
 
 
@@ -66,6 +86,7 @@ def list_reward(completions, chosen_answer, **kwargs):
         List[float]: A list of rewards for each completion.
     """
     contents = [completion[0]["content"].split("</think>")[-1].strip() for completion in completions]
+    contents = [extract_boxed_contents_list(completion) for completion in contents]
     return [1.0 if c == gt else 0.0 for c, gt in zip(contents, chosen_answer)]
 
 
@@ -91,6 +112,7 @@ def list_reward_with_distance(completions, pass_rates, num_candidates, **kwargs)
     """
     rewards = []
     contents = [c[0]["content"].split("</think>")[-1].strip() for c in completions]
+    contents = [extract_boxed_contents_list(completion) for completion in contents]
     for completion, pass_rate, num_candidate in zip(contents, pass_rates, num_candidates):
         # Generate possible answers up to num_candidates
         possible_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][:num_candidate]
@@ -108,7 +130,7 @@ def list_reward_with_distance(completions, pass_rates, num_candidates, **kwargs)
     return rewards
 
 
-def list_score_on_10(completions, chosen_position, num_candidates, **kwargs):
+def grm_correctness_reward(completions, chosen_position, num_candidates, **kwargs):
     """
     Assigns a +1 reward if the model's chosen answer matches the ground truth, and an additional +1 if the correct one is assigned a score of 10.
     Model completions consist of a "think" section followed by a boxed list of scores for each candidate.
@@ -126,12 +148,11 @@ def list_score_on_10(completions, chosen_position, num_candidates, **kwargs):
     """
     contents = [completion[0]["content"].split("</think>")[-1].strip() for completion in completions]
     # contents is something like [\boxed{[8,4,3]}, \boxed{[3,7,1,1]},...]
-    contents = [extract_boxed_contents(completion) for completion in contents]
+    contents = [extract_boxed_contents_score10(completion) for completion in contents]
     rewards = []
-    print(contents)
     for completion, num_candidate, gt_position in zip(contents, num_candidates, chosen_position):
         if len(completion) != num_candidate:
-            rewards.append(0.0)
+            rewards.append(-1.0)
             continue
         # model verdict is considered only if there is a unique max
         model_verdict = completion.index(max(completion)) if completion and completion.count(max(completion)) == 1 else -1
@@ -140,7 +161,7 @@ def list_score_on_10(completions, chosen_position, num_candidates, **kwargs):
         elif model_verdict == gt_position:
             rewards.append(1.0)
         else:
-            rewards.append(0.0)
+            rewards.append(-1.0)
     return rewards
 
 
@@ -163,7 +184,7 @@ def judgelrm_content_reward(completions, pass_rates, **kwargs):
     contents = [completion[0]["content"].split("</think>")[-1].strip() for completion in completions]
     gt_scores = [[round(x * 10) for x in pr] for pr in pass_rates]  # convert to 10-point scale
     # contents is something like [\boxed{[8,4]}, \boxed{[3,7]},...]
-    contents = [extract_boxed_contents(completion) for completion in contents]
+    contents = [extract_boxed_contents_score10(completion) for completion in contents]
     # contents is something like [[8,4], [3,7]]
     content_rewards = []
     for content, gt_score in zip(contents, gt_scores):
@@ -197,22 +218,43 @@ def judgelrm_content_reward(completions, pass_rates, **kwargs):
 def judgelrm_format_reward(completions, **kwargs):
     """
     Assigns a reward based on whether the model's output is correctly formatted.
-    +1 if correctly formatted, -0.5 if incorrectly formatted but contains two valid scores, else -1
+    +1 if correctly formatted, -0.5 if correctly formatted but two invalid scores, else -1
     Args:
         completions (List[List[Dict[str,str]]]): A list of model completions, each being a list of dictionaries with keys "role" and "content". In practice, each completion list has only one dictionary.
     Returns:
         List[float]: A list of rewards for each completion.
     """
-    pattern = r"^<think>(?!.*<think>)(.*?)</think>.*$"
+    pattern = r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\d+,\s*\d+\]}$"
     completion_contents = [completion[0]["content"].strip() for completion in completions]
     matches = [re.match(pattern, content, re.DOTALL) for content in completion_contents]
-    verdicts = [extract_boxed_contents(x.split("</think>")[-1].strip()) for x in completion_contents]
+    verdicts = [extract_boxed_contents_score10(x.split("</think>")[-1].strip()) for x in completion_contents]
     format_rewards = []
     for match, verdict in zip(matches, verdicts):
         if match and len(verdict) == 2 and all(0 <= x <= 10 for x in verdict):
             format_rewards.append(1.0)
-        elif not match and len(verdict) == 2 and all(0 <= x <= 10 for x in verdict):
+        elif match and len(verdict) == 2 and not all(0 <= x <= 10 for x in verdict):
             format_rewards.append(-0.5)
         else:
             format_rewards.append(-1.0)
     return format_rewards
+
+
+def grm_format_reward(completions, num_candidates, **kwargs):
+    """
+    Assigns a reward based on whether the model's output is correctly formatted.
+    0 if correctly formatted, else -1
+    Args:
+        completions (List[List[Dict[str,str]]]): A list of model completions, each being a list of dictionaries with keys "role" and "content". In practice, each completion list has only one dictionary.
+    Returns:
+        List[float]: A list of rewards for each completion.
+    """
+    pattern_dict = {
+        2: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\d+,\s*\d+\]}$",
+        3: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\d+,\s*\d+,\s*\d+\]}$",
+        4: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\d+,\s*\d+,\s*\d+,\s*\d+\]}$",
+        5: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\d+,\s*\d+,\s*\d+,\s*\d+,\s*\d+\]}$",
+    }
+
+    completion_contents = [completion[0]["content"].strip() for completion in completions]
+    matches = [re.match(pattern_dict[nc], content, re.DOTALL) for content, nc in zip(completion_contents, num_candidates)]
+    return [0.0 if match else -1.0 for match in matches]

@@ -49,7 +49,7 @@ def is_valid_checkpoint(checkpoint_dir: str) -> bool:
 
 def _create_prompts(example, reward_type):
     potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidates = [f"[RESPONSE_{i[2]}]\n{candidate}\n[/RESPONSE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     if reward_type == "list_em" or reward_type == "list_dist":
         example["prompt"] = [
@@ -59,7 +59,7 @@ def _create_prompts(example, reward_type):
                     question=example["query"],
                     candidates=candidate_str,
                     valid_options=", ".join(potential_answers),
-                ).strip(),
+                ),
             },
             {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
         ]
@@ -70,7 +70,7 @@ def _create_prompts(example, reward_type):
                 "content": JUDGELRM_PROMPT.format(
                     question=example["query"],
                     candidates=candidate_str,
-                ).strip(),
+                ),
             },
             {"role": "assistant", "content": "<think>\n"},
         ]
@@ -81,7 +81,7 @@ def _create_prompts(example, reward_type):
                 "content": DS_GRM_PROMPT.format(
                     question=example["query"],
                     candidates=candidate_str,
-                ).strip(),
+                ),
             },
             {"role": "assistant", "content": "<think>\n"},
         ]
@@ -102,7 +102,7 @@ def train(cfg: Config):
     elif cfg.reward_type == "judge_lrm":
         REWARD_FUNC = [cerebrm_rewards.judgelrm_content_reward, cerebrm_rewards.judgelrm_format_reward]
     elif cfg.reward_type == "ds_grm":
-        REWARD_FUNC = [cerebrm_rewards.grm_correctness_reward, cerebrm_rewards.grm_format_reward]
+        REWARD_FUNC = [cerebrm_rewards.list_score_on_10, cerebrm_rewards.grm_format_reward]
     else:
         raise ValueError(f"Unknown reward type: {cfg.reward_type}. Choose from 'list_em', 'list_dist', 'judge_lrm', 'ds_grm'.")
 
@@ -114,7 +114,9 @@ def train(cfg: Config):
 
     train_data = load_dataset(cfg.data.train)["train"]
     if cfg.reward_type == "judge_lrm":
-        train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
+        train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs")
+
+    train_data = train_data.sort("max_prompt_tokens", reverse=True)
 
     if cfg.data.val == cfg.data.train:
         eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
@@ -193,7 +195,7 @@ def train(cfg: Config):
         steps_per_generation=cfg.grpo_params.gradient_accumulation_steps * cfg.grpo_params.generate_every,
         importance_sampling_level=cfg.grpo_params.importance_sampling_level,
         scale_rewards=cfg.grpo_params.scale_rewards,
-        shuffle_dataset=True,
+        shuffle_dataset=False,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.grpo_params.model_path)
