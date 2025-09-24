@@ -34,7 +34,7 @@ def extract_boxed_contents_list(text: str) -> List[int]:
     try:
         matches = matches.group(1)
     except Exception:
-        matches = []
+        matches = None
     return matches
 
 

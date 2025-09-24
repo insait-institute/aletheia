@@ -93,7 +93,7 @@ def train(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     model_short_name = cfg.grpo_params.model_path.split("/")[-1].lower()
     wandb_run_name = f"CerebRM-{model_short_name}-{cfg.reward_type}"
-    output_dir = (Path(__file__).parent.parent / "cerebrm_output" / wandb_run_name).as_posix()
+    output_dir = f"{os.getenv("WORK")}/cerebrm_output/{wandb_run_name}"
 
     if cfg.reward_type == "list_em":
         REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]
@@ -115,15 +115,16 @@ def train(cfg: Config):
     train_data = load_dataset(cfg.data.train)["train"]
     if cfg.reward_type == "judge_lrm":
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
-
-    if cfg.data.val == cfg.data.train:
-        eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
-    else:
-        eval_data = load_dataset(cfg.data.val)["Full"] if cfg.data.val else None
-
     train_data = train_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
-    eval_data = eval_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
 
+    if cfg.data.val:
+        if cfg.data.val == cfg.data.train:
+            eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
+        else:
+            eval_data = load_dataset(cfg.data.val)["Full"]
+        eval_data = eval_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    else:
+        eval_data = None
     log.info(f"Loaded data from {cfg.data.train}")
     log.info(f"Train size: {len(train_data)}")
     log.info(f"Eval size: {len(eval_data) if eval_data else 'N/A'}")
