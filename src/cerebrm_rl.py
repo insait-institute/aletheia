@@ -1,6 +1,5 @@
 import logging
 import os
-from pathlib import Path
 
 import hydra
 import torch
@@ -93,7 +92,7 @@ def train(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     model_short_name = cfg.grpo_params.model_path.split("/")[-1].lower()
     wandb_run_name = f"CerebRM-{model_short_name}-{cfg.reward_type}"
-    output_dir = f"{os.getenv("WORK")}/cerebrm_output/{wandb_run_name}"
+    output_dir = f"{os.getenv('WORK')}/cerebrm_output/{wandb_run_name}"
 
     if cfg.reward_type == "list_em":
         REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]

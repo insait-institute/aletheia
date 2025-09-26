@@ -1,0 +1,7 @@
+# @package _global_
+
+raft_params:
+    model_path: Qwen/Qwen2.5-14B-Instruct
+    batch_size: 1
+    gradient_accumulation_steps: 128
+    thinking_model: False

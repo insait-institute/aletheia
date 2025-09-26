@@ -22,6 +22,7 @@ class GRPOParams:
     num_epochs: int = None
     overwrite_output_dir: bool = None
     save_steps: float = None
+    save_total_limit: int = None
     seed: int = None
     use_bf16: bool = None
     warmup_ratio: float = None
@@ -65,6 +66,7 @@ class SFTParams:
     overwrite_output_dir: bool = None
     resume_training_if_possible: bool = None
     save_steps: float = None
+    save_total_limit: int = None
     seed: int = None
     tp_size: int = None
     use_bf16: bool = None
@@ -73,9 +75,58 @@ class SFTParams:
 
 
 @dataclass
+class RAFTParams:
+    batch_size: int = None
+    deepspeed_config_path: str = None
+    gradient_accumulation_steps: int = None
+    learning_rate: float = None
+    logging_steps: int = None
+    lr_scheduler_kwargs: dict = None
+    lr_scheduler_type: str = None
+    max_length: int = None
+    model_name: str = None
+    num_epochs: int = None
+    overwrite_output_dir: bool = None
+    resume_training_if_possible: bool = None
+    save_steps: float = None
+    save_total_limit: int = None
+    seed: int = None
+    tp_size: int = None
+    use_bf16: bool = None
+    warmup_ratio: float = None
+    weight_decay: float = None
+    episode_num: int = None
+    num_generations: int = None
+    thinking_model: bool = None
+
+
+@dataclass
+class STaRParams:
+    batch_size: int = None
+    deepspeed_config_path: str = None
+    gradient_accumulation_steps: int = None
+    learning_rate: float = None
+    logging_steps: int = None
+    lr_scheduler_kwargs: dict = None
+    lr_scheduler_type: str = None
+    max_length: int = None
+    model_name: str = None
+    num_epochs: int = None
+    overwrite_output_dir: bool = None
+    resume_training_if_possible: bool = None
+    save_steps: float = None
+    save_total_limit: int = None
+    seed: int = None
+    tp_size: int = None
+    use_bf16: bool = None
+    warmup_ratio: float = None
+    weight_decay: float = None
+    episode_num: int = None
+
+
+@dataclass
 class WandbParams:
     log_level: str = None
-    run_name: str = None
 
 
 @dataclass
@@ -84,5 +135,7 @@ class Config:
     gen_params: Optional[GenParams] = field(default_factory=GenParams)
     grpo_params: Optional[GRPOParams] = field(default_factory=GRPOParams)
     sft_params: Optional[SFTParams] = field(default_factory=SFTParams)
+    raft_params: Optional[RAFTParams] = field(default_factory=RAFTParams)
+    star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
     reward_type: Optional[str] = None
