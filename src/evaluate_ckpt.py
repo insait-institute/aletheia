@@ -1,0 +1,151 @@
+import argparse
+import ast
+import logging
+import os
+import random
+import re
+import statistics
+from typing import List
+
+from datasets import load_dataset
+
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
+from utils import run_inference
+
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+
+
+def extract_boxed_contents_score10(text: str) -> List[int]:
+    """
+    Extracts all contents within \\boxed{...} from a given text string,
+    after normalizing braces.
+    """
+    # Match \boxed{...} with non-greedy content
+    pattern = r"\\boxed\{(.*?)\}"
+    matches = re.search(pattern, text)
+    try:
+        matches = ast.literal_eval(matches.group(1))
+        assert isinstance(matches, list) and all(isinstance(x, int) for x in matches)
+    except Exception:
+        matches = []
+    return matches
+
+
+def extract_boxed_contents_list(text: str) -> List[int]:
+    """
+    Extracts all contents within \\boxed{...} from a given text string,
+    after normalizing braces.
+    """
+    # Match \boxed{...} with non-greedy content
+    pattern = r"\\boxed\{(.*?)\}"
+    matches = re.search(pattern, text)
+    try:
+        matches = matches.group(1)
+    except Exception:
+        matches = None
+    return matches
+
+
+def _create_prompts(example, reward_type):
+    example["correct_ans"] = "[[A]]"
+    candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
+    if random.random() > 0.5:
+        example["correct_ans"] = "[[B]]"
+        candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
+
+    if reward_type == "list_em" or reward_type == "list_dist":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LIST_REWARD_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options="[[A]], [[B]]",
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
+        ]
+    elif reward_type == "judge_lrm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": JUDGELRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},
+        ]
+    elif reward_type == "ds_grm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": DS_GRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},
+        ]
+    return example
+
+
+def interpret_scores(scores: List[int]) -> str:
+    if len(scores) != 2:
+        return "[[Invalid]]"  # Indeterminate if we don't have exactly two scores
+    if scores[0] > scores[1]:
+        return "[[A]]"
+    elif scores[1] > scores[0]:
+        return "[[B]]"
+    else:
+        return "[[Invalid]]"  # Indeterminate if scores are equal
+
+
+def main(args):
+    data = load_dataset("wetsoledrysoul/RQ4-Set", split="original")
+    data = data.map(_create_prompts, fn_kwargs={"reward_type": args.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    prompts = list(data["prompt"])
+    completions = run_inference(
+        prompts=prompts,
+        llm=args.eval_llm,
+        temperature=0.6,
+        max_tokens=8192,
+        tp_size=1,
+        n=args.K,
+        gpu_memory_utilization=0.95,
+    )
+    completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
+
+    if args.reward_type in ["list_em", "list_dist"]:
+        model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
+    else:
+        scores = [[extract_boxed_contents_score10(y) for y in x] for x in completions]
+        model_answers = [[interpret_scores(y) for y in x] for x in scores]
+
+    accuracies = []
+    for correct_ans, answers in zip(data["correct_ans"], model_answers):
+        if len(answers) == 1:
+            accuracies.append({"SC": 1 if answers[0] == correct_ans else 0, "BoN": None})
+        else:
+            sc_ans = statistics.mode(answers)
+            bon_ans = 1 if correct_ans in answers else 0
+            accuracies.append({"SC": 1 if sc_ans == correct_ans else 0, "BoN": bon_ans})
+
+    log.info(f"{args.eval_llm} accuracy")
+    for metric in ["SC", "BoN"]:
+        metric_values = [x[metric] for x in accuracies if x[metric] is not None]
+        if metric_values:
+            log.info(f"{metric}: = {sum(metric_values) / len(metric_values):.4f}")
+    breakpoint()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
+    parser.add_argument("--reward_type", type=str, required=True, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
+    parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
+    args = parser.parse_args()
+    main(args)
