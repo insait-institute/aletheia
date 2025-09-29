@@ -46,11 +46,11 @@ def is_valid_checkpoint(checkpoint_dir: str) -> bool:
     return True
 
 
-def _create_prompts(example, reward_type):
+def _create_prompts(example, grpo_reward_type):
     potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
-    if reward_type == "list_em" or reward_type == "list_dist":
+    if grpo_reward_type == "list_em" or grpo_reward_type == "list_dist":
         example["prompt"] = [
             {
                 "role": "user",
@@ -62,7 +62,7 @@ def _create_prompts(example, reward_type):
             },
             {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
         ]
-    elif reward_type == "judge_lrm":
+    elif grpo_reward_type == "judge_lrm":
         example["prompt"] = [
             {
                 "role": "user",
@@ -73,7 +73,7 @@ def _create_prompts(example, reward_type):
             },
             {"role": "assistant", "content": "<think>\n"},
         ]
-    elif reward_type == "ds_grm":
+    elif grpo_reward_type == "ds_grm":
         example["prompt"] = [
             {
                 "role": "user",
@@ -91,19 +91,19 @@ def _create_prompts(example, reward_type):
 def train(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     model_short_name = cfg.grpo_params.model_path.split("/")[-1].lower()
-    wandb_run_name = f"CerebRM-{model_short_name}-{cfg.reward_type}"
+    wandb_run_name = f"CerebRM-{model_short_name}-{cfg.grpo_reward_type}"
     output_dir = f"{os.getenv('WORK')}/cerebrm_output/{wandb_run_name}"
 
-    if cfg.reward_type == "list_em":
+    if cfg.grpo_reward_type == "list_em":
         REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]
-    elif cfg.reward_type == "list_dist":
+    elif cfg.grpo_reward_type == "list_dist":
         REWARD_FUNC = [cerebrm_rewards.list_reward_with_distance, cerebrm_rewards.list_format_reward]
-    elif cfg.reward_type == "judge_lrm":
+    elif cfg.grpo_reward_type == "judge_lrm":
         REWARD_FUNC = [cerebrm_rewards.judgelrm_content_reward, cerebrm_rewards.judgelrm_format_reward]
-    elif cfg.reward_type == "ds_grm":
+    elif cfg.grpo_reward_type == "ds_grm":
         REWARD_FUNC = [cerebrm_rewards.grm_correctness_reward, cerebrm_rewards.grm_format_reward]
     else:
-        raise ValueError(f"Unknown reward type: {cfg.reward_type}. Choose from 'list_em', 'list_dist', 'judge_lrm', 'ds_grm'.")
+        raise ValueError(f"Unknown reward type: {cfg.grpo_reward_type}. Choose from 'list_em', 'list_dist', 'judge_lrm', 'ds_grm'.")
 
     if cfg.grpo_params.loss_type in ["dapo", "bnpo"]:
         REWARD_FUNC.append(cerebrm_rewards.soft_overlong_punishment)
@@ -112,16 +112,16 @@ def train(cfg: Config):
         raise ValueError("kl_update_steps must be greater than 0 for dynamic KL penalty.")
 
     train_data = load_dataset(cfg.data.train)["train"]
-    if cfg.reward_type == "judge_lrm":
+    if cfg.grpo_reward_type == "judge_lrm":
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
-    train_data = train_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    train_data = train_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
 
     if cfg.data.val:
         if cfg.data.val == cfg.data.train:
             eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
         else:
             eval_data = load_dataset(cfg.data.val)["Full"]
-        eval_data = eval_data.map(_create_prompts, fn_kwargs={"reward_type": cfg.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+        eval_data = eval_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
     else:
         eval_data = None
     log.info(f"Loaded data from {cfg.data.train}")
@@ -144,7 +144,6 @@ def train(cfg: Config):
         ref_model_sync_steps=cfg.grpo_params.ref_model_sync_steps,
         # Training parameters
         bf16=cfg.grpo_params.use_bf16,
-        bf16_full_eval=cfg.grpo_params.use_bf16,
         gradient_accumulation_steps=cfg.grpo_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},

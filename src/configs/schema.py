@@ -61,7 +61,7 @@ class SFTParams:
     lr_scheduler_kwargs: dict = None
     lr_scheduler_type: str = None
     max_length: int = None
-    model_name: str = None
+    model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
     resume_training_if_possible: bool = None
@@ -84,7 +84,7 @@ class RAFTParams:
     lr_scheduler_kwargs: dict = None
     lr_scheduler_type: str = None
     max_length: int = None
-    model_name: str = None
+    model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
     resume_training_if_possible: bool = None
@@ -110,7 +110,7 @@ class STaRParams:
     lr_scheduler_kwargs: dict = None
     lr_scheduler_type: str = None
     max_length: int = None
-    model_name: str = None
+    model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
     resume_training_if_possible: bool = None
@@ -138,4 +138,7 @@ class Config:
     raft_params: Optional[RAFTParams] = field(default_factory=RAFTParams)
     star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
-    reward_type: Optional[str] = None
+    grpo_reward_type: Optional[str] = None
+    raft_stage: Optional[int] = None
+    raft_episode: Optional[int] = None
+    star_episode: Optional[int] = None
