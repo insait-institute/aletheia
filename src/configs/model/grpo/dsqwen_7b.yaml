@@ -7,5 +7,4 @@ grpo_params:
 
 gen_params:
     vllm_gpu_memory_utilization: 0.35
-
     vllm_tensor_parallel_size: 1

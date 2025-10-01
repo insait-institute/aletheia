@@ -2,9 +2,9 @@
 
 grpo_params:
     model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-    batch_size: 1
+    batch_size: 8
     gradient_accumulation_steps: 32
 
 gen_params:
-    vllm_gpu_memory_utilization: 0.15
+    vllm_gpu_memory_utilization: 0.35
     vllm_tensor_parallel_size: 1
