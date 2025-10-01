@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+from pathlib import Path
 
 import hydra
 import torch
@@ -27,23 +29,32 @@ def _filter_pairs(example):
     return example["num_candidates"] == 2
 
 
-def is_valid_checkpoint(checkpoint_dir: str) -> bool:
-    if not os.path.isdir(checkpoint_dir):
-        return False
+def get_latest_valid_checkpoint(checkpoint_dir: str):
+    checkpoint_dir = Path(checkpoint_dir)
+    if not checkpoint_dir.is_dir():
+        return None
 
     required_files = ["config.json", "tokenizer.json"]
     model_files = ["pytorch_model.bin", "model.safetensors"]
+    checkpoint_pattern = re.compile(r"checkpoint-(\d+)")
 
-    # Check required config + tokenizer
-    for file in required_files:
-        if not os.path.isfile(os.path.join(checkpoint_dir, file)):
-            return False
+    candidates = []
+    for subdir in checkpoint_dir.iterdir():
+        if subdir.is_dir():
+            match = checkpoint_pattern.fullmatch(subdir.name)
+            if not match:
+                continue
+            step = int(match.group(1))
 
-    # At least one model weight file must exist
-    if not any(os.path.isfile(os.path.join(checkpoint_dir, mf)) for mf in model_files):
-        return False
+            # Validate checkpoint contents
+            if all((subdir / f).is_file() for f in required_files) and any((subdir / mf).is_file() for mf in model_files):
+                candidates.append((step, subdir))
 
-    return True
+    if not candidates:
+        return None
+
+    # Return the path of the checkpoint with the highest step
+    return max(candidates, key=lambda x: x[0])[1]
 
 
 def _create_prompts(example, grpo_reward_type):
@@ -205,7 +216,7 @@ def train(cfg: Config):
         reward_funcs=REWARD_FUNC,
     )
     # Start training with explicit checkpoint resumption
-    trainer.train(resume_from_checkpoint=is_valid_checkpoint(config.output_dir))
+    trainer.train(resume_from_checkpoint=get_latest_valid_checkpoint(config.output_dir))
     log.info("Training completed.")
     trainer.save_model(output_dir)
     log.info(f"Model trained and saved to {output_dir}")

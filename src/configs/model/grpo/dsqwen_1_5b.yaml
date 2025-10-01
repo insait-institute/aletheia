@@ -6,5 +6,5 @@ grpo_params:
     gradient_accumulation_steps: 32
 
 gen_params:
-    vllm_gpu_memory_utilization: 0.35
+    vllm_gpu_memory_utilization: 0.4
     vllm_tensor_parallel_size: 1
