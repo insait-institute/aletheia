@@ -8,6 +8,7 @@ import statistics
 from typing import List
 
 from datasets import load_dataset
+from transformers import AutoTokenizer
 
 from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from utils import run_inference
@@ -105,13 +106,15 @@ def interpret_scores(scores: List[int]) -> str:
 
 
 def main(args):
-    data = load_dataset("wetsoledrysoul/RQ4-Set", split="original")
+    data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
     data = data.map(_create_prompts, fn_kwargs={"reward_type": args.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
+    tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", trust_remote_code=True)
     completions = run_inference(
         prompts=prompts,
         llm=args.eval_llm,
         temperature=0.6,
+        tokenizer=tokenizer,
         max_tokens=8192,
         tp_size=1,
         n=args.K,
@@ -139,7 +142,6 @@ def main(args):
         metric_values = [x[metric] for x in accuracies if x[metric] is not None]
         if metric_values:
             log.info(f"{metric}: = {sum(metric_values) / len(metric_values):.4f}")
-    breakpoint()
 
 
 if __name__ == "__main__":
