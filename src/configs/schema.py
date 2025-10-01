@@ -141,4 +141,5 @@ class Config:
     grpo_reward_type: Optional[str] = None
     raft_stage: Optional[int] = None
     raft_episode: Optional[int] = None
+    star_stage: Optional[int] = None
     star_episode: Optional[int] = None

@@ -18,6 +18,7 @@ def run_inference(
     max_tokens=4096,
     n=1,
     gpu_memory_utilization=0.95,
+    max_model_len=None,
     enable_expert_parallel=False,
     **kwargs,
 ) -> List[RequestOutput]:
@@ -37,18 +38,19 @@ def run_inference(
     Returns:
         List[RequestOutput]: A list of generated responses per prompt. Each request output can contain multiple generations if n > 1.
     """
-    if isinstance(llm, str):
+    if tokenizer is None:
+        if not isinstance(llm, str):
+            raise ValueError("Tokenizer must be provided if llm is an instance of LLM")
         tokenizer = AutoTokenizer.from_pretrained(llm, trust_remote_code=True)
+    if isinstance(llm, str):
         llm = LLM(
             model=llm,
             trust_remote_code=True,
             tensor_parallel_size=tp_size,
             gpu_memory_utilization=gpu_memory_utilization,
             enable_expert_parallel=enable_expert_parallel,
+            max_model_len=max_model_len,
         )
-    else:
-        if tokenizer is None:
-            raise ValueError("Tokenizer must be provided if llm is an instance of LLM")
     prompts = tokenizer.apply_chat_template(
         prompts,
         tokenize=False,
