@@ -1,0 +1,30 @@
+# @package _global_
+
+data:
+    train: CodeShield/CerebRM-Dataset
+    val: null
+
+star_params:
+    learning_rate: 5e-5
+    logging_steps: 1
+    lr_scheduler_kwargs: 
+        min_lr: 5e-6
+    lr_scheduler_type: cosine_with_min_lr
+    max_length: 12288
+    num_epochs: 1
+    overwrite_output_dir: True
+    resume_training_if_possible: True
+    save_steps: 0.25
+    save_total_limit: 2
+    seed: 42
+    tp_size: 1
+    use_bf16: True
+    warmup_ratio: 0.05
+    weight_decay: 1e-2
+    episode_num: 0
+
+wandb_params:
+    log_level: info
+
+star_episode: null
+star_stage: null
