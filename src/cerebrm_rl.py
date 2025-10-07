@@ -1,7 +1,5 @@
 import logging
 import os
-import re
-from pathlib import Path
 
 import hydra
 import torch
@@ -14,6 +12,7 @@ import cerebrm_rewards
 import wandb
 from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from configs.schema import Config
+from utils import maybe_resume_training
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -27,34 +26,6 @@ NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") e
 
 def _filter_pairs(example):
     return example["num_candidates"] == 2
-
-
-def get_latest_valid_checkpoint(checkpoint_dir: str):
-    checkpoint_dir = Path(checkpoint_dir)
-    if not checkpoint_dir.is_dir():
-        return None
-
-    required_files = ["config.json", "tokenizer.json"]
-    model_files = ["pytorch_model.bin", "model.safetensors"]
-    checkpoint_pattern = re.compile(r"checkpoint-(\d+)")
-
-    candidates = []
-    for subdir in checkpoint_dir.iterdir():
-        if subdir.is_dir():
-            match = checkpoint_pattern.fullmatch(subdir.name)
-            if not match:
-                continue
-            step = int(match.group(1))
-
-            # Validate checkpoint contents
-            if all((subdir / f).is_file() for f in required_files) and any((subdir / mf).is_file() for mf in model_files):
-                candidates.append((step, subdir))
-
-    if not candidates:
-        return None
-
-    # Return the path of the checkpoint with the highest step
-    return max(candidates, key=lambda x: x[0])[1]
 
 
 def _create_prompts(example, grpo_reward_type):
@@ -126,7 +97,6 @@ def train(cfg: Config):
     if cfg.grpo_reward_type == "judge_lrm":
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
     train_data = train_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
-
     if cfg.data.val:
         if cfg.data.val == cfg.data.train:
             eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
@@ -203,7 +173,6 @@ def train(cfg: Config):
         steps_per_generation=cfg.grpo_params.gradient_accumulation_steps * cfg.grpo_params.generate_every,
         importance_sampling_level=cfg.grpo_params.importance_sampling_level,
         scale_rewards=cfg.grpo_params.scale_rewards,
-        shuffle_dataset=True,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.grpo_params.model_path)
@@ -216,7 +185,7 @@ def train(cfg: Config):
         reward_funcs=REWARD_FUNC,
     )
     # Start training with explicit checkpoint resumption
-    trainer.train(resume_from_checkpoint=get_latest_valid_checkpoint(config.output_dir))
+    trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     log.info("Training completed.")
     trainer.save_model(output_dir)
     log.info(f"Model trained and saved to {output_dir}")
