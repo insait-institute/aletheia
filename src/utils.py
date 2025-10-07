@@ -1,4 +1,6 @@
 import logging
+import re
+from pathlib import Path
 from typing import Dict, List, Union
 
 from transformers import AutoTokenizer
@@ -81,3 +83,32 @@ def get_generated_text(responses: List[RequestOutput]) -> List[List[str]]:
         List[List[str]]: A list of lists containing the generated text for each prompt. The shape of the list is [num_prompts, num_responses_per_prompt].
     """
     return [[nth_response.text for nth_response in responses.outputs] for responses in responses]
+
+
+def maybe_resume_training(base_dir: str) -> bool:
+    """
+    Find the latest valid checkpoint directory inside base_dir/checkpoint_x.
+    A valid checkpoint must contain config.json, tokenizer.json, and at least
+    one model weight file (pytorch_model.bin or model.safetensors).
+    Returns a Path or None if no valid checkpoint exists.
+    """
+    base_path = Path(base_dir)
+    if not base_path.is_dir():
+        return False
+
+    checkpoint_pattern = re.compile(r"checkpoint-(\d+)")
+
+    candidates = []
+    for subdir in base_path.iterdir():
+        if subdir.is_dir():
+            match = checkpoint_pattern.fullmatch(subdir.name)
+            if not match:
+                continue
+            step = int(match.group(1))
+            candidates.append((step, subdir))
+
+    if not candidates:
+        return False
+
+    # Return the path of the checkpoint with the highest step
+    return True

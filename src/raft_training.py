@@ -4,7 +4,7 @@ import pickle
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import hydra
 import torch
@@ -17,7 +17,7 @@ import wandb
 from cerebrm_prompts import RAFT_PROMPT_NOTHINK, RAFT_PROMPT_THINK
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
-from utils import get_generated_text, run_inference
+from utils import get_generated_text, maybe_resume_training, run_inference
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -39,25 +39,6 @@ class Message:
 
 
 Prompt = List[Message]
-
-
-def is_valid_checkpoint(checkpoint_dir: str) -> bool:
-    if not os.path.isdir(checkpoint_dir):
-        return False
-
-    required_files = ["config.json", "tokenizer.json"]
-    model_files = ["pytorch_model.bin", "model.safetensors"]
-
-    # Check required config + tokenizer
-    for file in required_files:
-        if not os.path.isfile(os.path.join(checkpoint_dir, file)):
-            return False
-
-    # At least one model weight file must exist
-    if not any(os.path.isfile(os.path.join(checkpoint_dir, mf)) for mf in model_files):
-        return False
-
-    return True
 
 
 def _create_prompts(example, cfg: Config):
@@ -82,7 +63,7 @@ def _create_prompts(example, cfg: Config):
     return example
 
 
-def generate_completions(cfg: Config, prompts: List[List[Dict[str, str]]], model: str, tokenizer) -> List[List[str]]:
+def generate_completions(cfg: Config, prompts: List[Prompt], model: str, tokenizer) -> List[List[str]]:
     # Sampling K responses from the current model
     responses = run_inference(prompts, model, temperature=1.0, max_tokens=8192, n=cfg.raft_params.num_generations, tp_size=torch.cuda.device_count(), tokenizer=tokenizer, max_model_len=12288)
     completions = get_generated_text(responses)
@@ -149,11 +130,11 @@ def train_raft_model(
         use_liger_kernel=True,
     )
     trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=stage3_data)
-    trainer.train(resume_from_checkpoint=is_valid_checkpoint(config.output_dir))
+    trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
 
-def _count_tokens(prompt, tokenizer) -> int:
+def _count_tokens(prompt: Prompt, tokenizer) -> int:
     prompt = tokenizer.apply_chat_template(
         prompt,
         tokenize=False,
@@ -161,6 +142,10 @@ def _count_tokens(prompt, tokenizer) -> int:
     )
     tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
     return len(tokenized_prompt)
+
+
+def _by_tokens(example, max_tokens: int) -> bool:
+    return example["num_tokens"] <= max_tokens
 
 
 def construct_data_for_training(stage1_prompts, episode_completions, scored_completions, tokenizer) -> Dataset:

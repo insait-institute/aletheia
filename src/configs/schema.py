@@ -52,29 +52,6 @@ class GenParams:
 
 
 @dataclass
-class SFTParams:
-    batch_size: int = None
-    deepspeed_config_path: str = None
-    gradient_accumulation_steps: int = None
-    learning_rate: float = None
-    logging_steps: int = None
-    lr_scheduler_kwargs: dict = None
-    lr_scheduler_type: str = None
-    max_length: int = None
-    model_path: str = None
-    num_epochs: int = None
-    overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
-    save_steps: float = None
-    save_total_limit: int = None
-    seed: int = None
-    tp_size: int = None
-    use_bf16: bool = None
-    warmup_ratio: float = None
-    weight_decay: float = None
-
-
-@dataclass
 class RAFTParams:
     batch_size: int = None
     deepspeed_config_path: str = None
@@ -121,7 +98,29 @@ class STaRParams:
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
-    episode_num: int = None
+
+
+@dataclass
+class GenRMParams:
+    batch_size: int = None
+    deepspeed_config_path: str = None
+    gradient_accumulation_steps: int = None
+    learning_rate: float = None
+    logging_steps: int = None
+    lr_scheduler_kwargs: dict = None
+    lr_scheduler_type: str = None
+    max_length: int = None
+    model_path: str = None
+    num_epochs: int = None
+    overwrite_output_dir: bool = None
+    resume_training_if_possible: bool = None
+    save_steps: float = None
+    save_total_limit: int = None
+    seed: int = None
+    tp_size: int = None
+    use_bf16: bool = None
+    warmup_ratio: float = None
+    weight_decay: float = None
 
 
 @dataclass
@@ -134,8 +133,8 @@ class Config:
     data: Optional[Data] = field(default_factory=Data)
     gen_params: Optional[GenParams] = field(default_factory=GenParams)
     grpo_params: Optional[GRPOParams] = field(default_factory=GRPOParams)
-    sft_params: Optional[SFTParams] = field(default_factory=SFTParams)
     raft_params: Optional[RAFTParams] = field(default_factory=RAFTParams)
+    genrm_params: Optional[GenRMParams] = field(default_factory=GenRMParams)
     star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
     grpo_reward_type: Optional[str] = None
