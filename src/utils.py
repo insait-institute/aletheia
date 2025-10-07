@@ -39,9 +39,10 @@ def run_inference(
         List[RequestOutput]: A list of generated responses per prompt. Each request output can contain multiple generations if n > 1.
     """
     if tokenizer is None:
-        if not isinstance(llm, str):
-            raise ValueError("Tokenizer must be provided if llm is an instance of LLM")
-        tokenizer = AutoTokenizer.from_pretrained(llm, trust_remote_code=True)
+        if isinstance(llm, str):
+            tokenizer = AutoTokenizer.from_pretrained(llm, trust_remote_code=True)
+        else:
+            tokenizer = llm.get_tokenizer()
     if isinstance(llm, str):
         llm = LLM(
             model=llm,
@@ -51,10 +52,12 @@ def run_inference(
             enable_expert_parallel=enable_expert_parallel,
             max_model_len=max_model_len,
         )
+    add_generation_prompt = not prompts[0][-1]["role"] == "assistant"
     prompts = tokenizer.apply_chat_template(
         prompts,
         tokenize=False,
-        add_generation_prompt=True,
+        add_generation_prompt=add_generation_prompt,
+        continue_final_message=not add_generation_prompt,
         enable_thinking=enable_thinking,
     )
     sampling_params = SamplingParams(

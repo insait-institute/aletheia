@@ -8,7 +8,6 @@ import statistics
 from typing import List
 
 from datasets import load_dataset
-from transformers import AutoTokenizer
 
 from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from utils import run_inference
@@ -107,16 +106,24 @@ def interpret_scores(scores: List[int]) -> str:
 
 def main(args):
     data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
+    if args.reward_type is None:
+        if "list_em" in args.eval_llm or "list_dist" in args.eval_llm:
+            args.reward_type = "list_em"
+        elif "judge_lrm" in args.eval_llm:
+            args.reward_type = "judge_lrm"
+        elif "ds_grm" in args.eval_llm:
+            args.reward_type = "ds_grm"
+        else:
+            args.reward_type = "list_em"
     data = data.map(_create_prompts, fn_kwargs={"reward_type": args.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
-    tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", trust_remote_code=True)
     completions = run_inference(
         prompts=prompts,
         llm=args.eval_llm,
         temperature=0.6,
-        tokenizer=tokenizer,
-        max_tokens=8192,
+        max_tokens=32768,
         tp_size=1,
+        top_p=0.95,
         n=args.K,
         gpu_memory_utilization=0.95,
     )
@@ -147,7 +154,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
-    parser.add_argument("--reward_type", type=str, required=True, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
+    parser.add_argument("--reward_type", type=str, default=None, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
     parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
     args = parser.parse_args()
     main(args)
