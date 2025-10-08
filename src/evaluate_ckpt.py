@@ -105,7 +105,18 @@ def interpret_scores(scores: List[int]) -> str:
 
 
 def main(args):
-    data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
+    if args.data == "rq1":
+        data = load_dataset("wetsoledrysoul/RQ1-Set")
+        data = data["filtered"]
+    elif args.data == "rq2":
+        data = load_dataset("wetsoledrysoul/RQ2-Set")
+        data = data["full"]
+    elif args.data == "rq3":
+        raise NotImplementedError("RQ3 dataset not yet available")
+    elif args.data == "rq4":
+        data = load_dataset("wetsoledrysoul/RQ4-Set")
+    else:
+        data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
     if args.reward_type is None:
         if "list_em" in args.eval_llm or "list_dist" in args.eval_llm:
             args.reward_type = "list_em"
@@ -156,5 +167,6 @@ if __name__ == "__main__":
     parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
     parser.add_argument("--reward_type", type=str, default=None, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
     parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
+    parser.add_argument("--data", type=str, default="heldout", choices=["rq1", "rq2", "rq3", "rq4", "heldout"], help="Which dataset to use for evaluation")
     args = parser.parse_args()
     main(args)
