@@ -138,6 +138,7 @@ class Config:
     star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
     grpo_reward_type: Optional[str] = None
+    grpo_use_lora: Optional[bool] = None
     raft_stage: Optional[int] = None
     raft_episode: Optional[int] = None
     star_stage: Optional[int] = None

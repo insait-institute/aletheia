@@ -39,3 +39,4 @@ wandb_params:
     log_level: info
 
 grpo_reward_type: null
+grpo_use_lora: false

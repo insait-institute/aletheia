@@ -5,6 +5,7 @@ import hydra
 import torch
 from datasets import load_dataset
 from omegaconf import OmegaConf
+from peft import LoraConfig
 from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
@@ -175,6 +176,9 @@ def train(cfg: Config):
         scale_rewards=cfg.grpo_params.scale_rewards,
     )
 
+    if cfg.grpo_use_lora:
+        peft_config = LoraConfig(r=16, lora_alpha=32, target_modules="all-linear")
+
     tokenizer = AutoTokenizer.from_pretrained(cfg.grpo_params.model_path)
     trainer = GRPOTrainer(
         model=cfg.grpo_params.model_path,
@@ -183,6 +187,7 @@ def train(cfg: Config):
         eval_dataset=eval_data,
         processing_class=tokenizer,
         reward_funcs=REWARD_FUNC,
+        peft_config=peft_config if cfg.grpo_use_lora else None,
     )
     # Start training with explicit checkpoint resumption
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
