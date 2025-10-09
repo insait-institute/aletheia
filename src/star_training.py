@@ -11,7 +11,7 @@ from datasets import Dataset, load_dataset
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
-
+import time
 import wandb
 from cerebrm_prompts import STAR_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
@@ -110,12 +110,11 @@ def train_star_model(
         report_to="wandb",
         run_name=wandb_run_name,
         # Saving parameters
-        hub_model_id=f"CodeShield/{wandb_run_name}",
+        hub_model_id=f"wetsoledrysoul/{wandb_run_name}",
         hub_private_repo=True,
         hub_strategy="end",
         save_strategy="steps",
         save_steps=cfg.star_params.save_steps,
-        save_total_limit=cfg.star_params.save_total_limit,
         # Data parameters
         data_seed=cfg.star_params.seed,
         dataloader_drop_last=True,
@@ -129,15 +128,16 @@ def train_star_model(
     trainer.push_to_hub()
 
 
-def _count_tokens(prompt: Prompt, tokenizer) -> int:
+def _count_tokens(example, tokenizer):
+    prompt = example['prompt'] + example['completion']
     prompt = tokenizer.apply_chat_template(
         prompt,
         tokenize=False,
         add_generation_prompt=False,
     )
     tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    return len(tokenized_prompt)
-
+    example['num_tokens'] = len(tokenized_prompt)
+    return example
 
 def create_messages_from_completions(prompts, completions):
     processed_prompts, processed_completions = [], []
@@ -153,33 +153,46 @@ def create_messages_from_completions(prompts, completions):
 def _by_tokens(example, max_tokens: int) -> bool:
     return example["num_tokens"] <= max_tokens
 
-
+def does_file_exist(file:Path)->bool:
+    return file.exists()
+    
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     ### Sanity checks
     assert cfg.star_stage in [1, 2, 3], "Invalid star_stage. Must be 1 for generating and scoring completions, 2 for generating and scoring hinted completions, or 3 for training."
     assert cfg.star_episode >= 0, "Invalid star_episode. Must be a non-negative integer."
-    output_dir = Path(f"{os.getenv('WORK')}/star_output/episode_{cfg.star_episode}")
-    if cfg.star_episode > 0:
-        for prev_ep in range(cfg.star_episode):
-            prev_dir = output_dir.parent / f"episode_{prev_ep}"
-            if not any(prev_dir.iterdir()):
-                raise ValueError(f"Previous episode directory {prev_dir} is empty. Please run stage 1, 2 and 3 for episode {prev_ep} before proceeding.")
-    if cfg.star_stage == 2:
-        if not (output_dir / "stage1_correct_prompts.pkl").exists() or not (output_dir / "stage1_correct_completions.pkl").exists() or not (output_dir / "stage1_incorrect_indices.pkl").exists():
-            raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.star_episode} before proceeding.")
-    if cfg.star_stage == 3:
-        if not (output_dir / "correct_prompts.pkl").exists() or not (output_dir / "correct_completions.pkl").exists():
-            raise ValueError(f"Stage 2 files are missing in {output_dir}. Please run stage 2 for episode {cfg.star_episode} before proceeding.")
-    ### End sanity checks
-    log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.star_params.model_path)
-    train_data = load_dataset(cfg.data.train)["train"].select(range(5120))
-
-    output_dir.mkdir(parents=True, exist_ok=True)
     model_short_name = cfg.star_params.model_path.split("/")[-1]
     wandb_run_name = f"star_{model_short_name}_ep{cfg.star_episode}"
-    model_path_episode = cfg.star_params.model_path if cfg.star_episode == 0 else f"CodeShield/{wandb_run_name}"
+    model_path_episode = cfg.star_params.model_path if cfg.star_episode == 0 else f"wetsoledrysoul/star_{model_short_name}_ep{cfg.star_episode-1}"
+    output_dir = Path(f"{os.getenv('WORK')}/star_output/{wandb_run_name}")
+    if cfg.star_stage == 2:
+        if not all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
+            raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.star_episode} before proceeding.")
+    if cfg.star_stage == 3:
+        if not all([does_file_exist(output_dir / x) for x in ["correct_prompts.pkl", "correct_completions.pkl"]]):
+            raise ValueError(f"Stage 2 files are missing in {output_dir}. Please run stage 2 for episode {cfg.star_episode} before proceeding.")
+    ### End sanity checks
+
+    ### Check if stage has been completed previously
+    if cfg.star_stage==1:
+        if all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
+            log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
+            return None
+    elif cfg.star_stage == 2:
+        if all([does_file_exist(output_dir / x) for x in ["correct_prompts.pkl", "correct_completions.pkl"]]):
+            log.info(f"Stage 2 files are already present in {output_dir}. Skipping.")
+            return None
+    elif cfg.star_stage == 3:
+        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+            log.info(f"Stage 3 files are already present in {output_dir}. Skipping.")
+            return None
+    ### End Checks
+    
+    log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
+    tokenizer = AutoTokenizer.from_pretrained(cfg.star_params.model_path)
+    train_data = load_dataset(cfg.data.train)["train"]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     unhinted_prompts = list(train_data["prompt"])
@@ -239,15 +252,18 @@ def main(cfg: Config):
             pickle.dump(correct_completions, f)
         log.info(f"Completed Stage 2 of star episode {cfg.star_episode}")
     else:
-        with open(output_dir / "correct_prompts.pkl", "rb") as f:
-            correct_prompts = pickle.load(f)
-        with open(output_dir / "correct_completions.pkl", "rb") as f:
-            correct_completions = pickle.load(f)
+        correct_prompts, correct_completions = [], []
+        for ep in range(cfg.star_episode+1):
+            episode_dir = output_dir.parent / f"star_{model_short_name}_ep{ep}"
+            with open(episode_dir / "correct_prompts.pkl", "rb") as f:
+                correct_prompts.extend(pickle.load(f))
+            with open(episode_dir / "correct_completions.pkl", "rb") as f:
+                correct_completions.extend(pickle.load(f))
         stage3_data = Dataset.from_dict({"prompt": correct_prompts, "completion": correct_completions})
         stage3_data = stage3_data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting tokens")
         stage3_data = stage3_data.filter(_by_tokens, fn_kwargs={"max_tokens": cfg.star_params.max_length}, num_proc=NUM_WORKERS, desc="Filtering long sequences")
 
-        log.info(f"Training {cfg.star_params.model_path} on {len(stage3_data)} examples in stage three")
+        log.info(f"Training {cfg.star_params.model_path} on {len(stage3_data)} examples in stage three for episode {cfg.star_episode}")
         train_star_model(cfg, cfg.star_params.model_path, stage3_data, wandb_run_name, output_dir)
         log.info(f"Completed Stage 3 of star episode {cfg.star_episode}")
 
