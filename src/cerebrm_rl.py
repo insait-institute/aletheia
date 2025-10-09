@@ -33,7 +33,7 @@ def _create_prompts(example, grpo_reward_type):
     potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
-    if grpo_reward_type == "list_em" or grpo_reward_type == "list_dist":
+    if grpo_reward_type in ["list_em", "list_dist", "pair"]:
         example["prompt"] = [
             {
                 "role": "user",
@@ -77,7 +77,7 @@ def train(cfg: Config):
     wandb_run_name = f"CerebRM-{model_short_name}-{cfg.grpo_reward_type}"
     output_dir = f"{os.getenv('WORK')}/cerebrm_output/{wandb_run_name}"
 
-    if cfg.grpo_reward_type == "list_em":
+    if cfg.grpo_reward_type in ["list_em", "pair"]:
         REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]
     elif cfg.grpo_reward_type == "list_dist":
         REWARD_FUNC = [cerebrm_rewards.list_reward_with_distance, cerebrm_rewards.list_format_reward]
@@ -95,7 +95,7 @@ def train(cfg: Config):
         raise ValueError("kl_update_steps must be greater than 0 for dynamic KL penalty.")
 
     train_data = load_dataset(cfg.data.train)["train"]
-    if cfg.grpo_reward_type == "judge_lrm":
+    if cfg.grpo_reward_type in ["judge_lrm", "pair"]:
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
     train_data = train_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
     if cfg.data.val:
