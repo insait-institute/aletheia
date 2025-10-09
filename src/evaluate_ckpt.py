@@ -1,10 +1,14 @@
 import argparse
 import ast
+import csv
 import logging
 import os
+import pickle
 import random
 import re
 import statistics
+import uuid
+from pathlib import Path
 from typing import List
 
 from datasets import load_dataset
@@ -116,7 +120,7 @@ def main(args):
     elif args.data == "rq4":
         data = load_dataset("wetsoledrysoul/RQ4-Set")
     else:
-        data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
+        data = load_dataset("wetsoledrysoul/RQ4-Set", split="original")
     if args.reward_type is None:
         if "list_em" in args.eval_llm or "list_dist" in args.eval_llm:
             args.reward_type = "list_em"
@@ -132,7 +136,7 @@ def main(args):
         prompts=prompts,
         llm=args.eval_llm,
         temperature=0.6,
-        max_tokens=32768,
+        max_tokens=args.max_tokens,
         tp_size=1,
         top_p=0.95,
         n=args.K,
@@ -160,6 +164,39 @@ def main(args):
         metric_values = [x[metric] for x in accuracies if x[metric] is not None]
         if metric_values:
             log.info(f"{metric}: = {sum(metric_values) / len(metric_values):.4f}")
+    # Create a CSV file with results
+
+    # Calculate overall metrics
+    sc_values = [x["SC"] for x in accuracies if x["SC"] is not None]
+    bon_values = [x["BoN"] for x in accuracies if x["BoN"] is not None]
+
+    sc_accuracy = sum(sc_values) / len(sc_values) if sc_values else 0
+    bon_accuracy = sum(bon_values) / len(bon_values) if bon_values else 0
+    # Create filename with timestamp
+    random_id = str(uuid.uuid4())[:8]
+    pkl_filename = Path(__file__).parent / f"outputs/completions_{random_id}.pkl"
+    csv_filename = Path(__file__).parent / "outputs/eval_results.csv"
+
+    # Save completions to pickle file
+    with open(pkl_filename, "wb") as f:
+        pickle.dump(completions, f)
+    with open(csv_filename, "a", newline="") as csvfile:
+        fieldnames = ["eval_llm", "reward_type", "K", "data", "max_tokens", "SC_accuracy", "BoN_accuracy", "completions_pkl_file"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(
+            {
+                "eval_llm": args.eval_llm,
+                "reward_type": args.reward_type,
+                "K": args.K,
+                "data": args.data,
+                "max_tokens": args.max_tokens,
+                "SC_accuracy": f"{sc_accuracy:.4f}",
+                "BoN_accuracy": f"{bon_accuracy:.4f}" if bon_values else "N/A",
+                "completions_pkl_file": pkl_filename.name,
+            }
+        )
+
+    log.info(f"Results saved to {csv_filename}")
 
 
 if __name__ == "__main__":
@@ -168,5 +205,6 @@ if __name__ == "__main__":
     parser.add_argument("--reward_type", type=str, default=None, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
     parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
     parser.add_argument("--data", type=str, default="heldout", choices=["rq1", "rq2", "rq3", "rq4", "heldout"], help="Which dataset to use for evaluation")
+    parser.add_argument("--max_tokens", type=int, default=32768, help="Maximum number of tokens to generate")
     args = parser.parse_args()
     main(args)
