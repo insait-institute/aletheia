@@ -13,9 +13,10 @@ from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
 from transformers import AutoTokenizer
 from vllm import LLM
 
+from c_minifier import CMinifier
 from codecrash import descriptive_misleading_comments
 from obscuracoder import TSConObfuscator
-from utils import CMinifier, run_inference
+from utils import run_inference
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
