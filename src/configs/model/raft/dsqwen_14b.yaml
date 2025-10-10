@@ -2,6 +2,6 @@
 
 raft_params:
     model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
-    batch_size: 1
-    gradient_accumulation_steps: 128
+    batch_size: 4
+    gradient_accumulation_steps: 4
     thinking_model: True

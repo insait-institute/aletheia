@@ -10,7 +10,7 @@ raft_params:
     lr_scheduler_kwargs: 
         min_lr: 5e-6
     lr_scheduler_type: cosine_with_min_lr
-    max_length: 12288
+    max_length: 20480
     num_epochs: 1
     overwrite_output_dir: True
     resume_training_if_possible: True
