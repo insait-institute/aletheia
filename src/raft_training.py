@@ -2,7 +2,6 @@ import logging
 import os
 import pickle
 import random
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
@@ -17,7 +16,7 @@ import wandb
 from cerebrm_prompts import RAFT_PROMPT_NOTHINK, RAFT_PROMPT_THINK
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
-from utils import get_generated_text, maybe_resume_training, run_inference
+from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -30,15 +29,6 @@ os.environ["WANDB_ENTITY"] = "CodeShield"
 os.environ["WANDB_PROJECT"] = "CerebRM-RAFT"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-
-
-@dataclass
-class Message:
-    role: str
-    content: str
-
-
-Prompt = List[Message]
 
 
 def _create_prompts(example, cfg: Config):
@@ -63,9 +53,18 @@ def _create_prompts(example, cfg: Config):
     return example
 
 
-def generate_completions(cfg: Config, prompts: List[Prompt], model: str, tokenizer) -> List[List[str]]:
+def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[List[str]]:
     # Sampling K responses from the current model
-    responses = run_inference(prompts, model, temperature=1.0, max_tokens=8192, n=cfg.raft_params.num_generations, tp_size=torch.cuda.device_count(), tokenizer=tokenizer, max_model_len=12288)
+    responses = run_inference(
+        prompts,
+        model,
+        temperature=1.0,
+        max_tokens=cfg.raft_params.max_length - 4096,
+        n=cfg.raft_params.num_generations,
+        dp_size=torch.cuda.device_count(),
+        tp_size=1,
+        max_model_len=cfg.raft_params.max_length,
+    )
     completions = get_generated_text(responses)
     return completions
 
@@ -166,18 +165,34 @@ def construct_data_for_training(stage1_prompts, episode_completions, scored_comp
     return Dataset.from_dict({"prompt": prompts, "completion": completions, "num_tokens": num_tokens})
 
 
+def does_file_exist(file: Path) -> bool:
+    return file.exists()
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     ### Sanity checks
     assert cfg.raft_stage in [1, 2], "Invalid raft_stage. Must be 1 for generating and scoring completions, or 2 for training."
     assert cfg.raft_episode >= 0, "Invalid raft_episode. Must be a non-negative integer."
-    output_dir = Path(f"{os.getenv('WORK')}/raft_output/episode_{cfg.raft_episode}")
-    if cfg.raft_episode > 0:
-        for prev_ep in range(cfg.raft_episode):
-            prev_dir = output_dir.parent / f"episode_{prev_ep}"
-            if "completions.pkl" not in prev_dir.iterdir() or "scored_completions.pkl" not in prev_dir.iterdir():
-                raise ValueError(f"Previous episode directory {prev_dir} is incomplete. Please run stage 1 and 2 for episode {prev_ep} before proceeding.")
+    model_short_name = cfg.raft_params.model_path.split("/")[-1]
+    wandb_run_name = f"RAFT_{model_short_name}_ep{cfg.raft_episode}"
+    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"CodeShield/{wandb_run_name}"
+    output_dir = Path(f"{os.getenv('WORK')}/raft_output/{wandb_run_name}")
+    if cfg.raft_stage == 2:
+        if not all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):
+            raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.raft_episode} before proceeding.")
     ### End sanity checks
+    ### Check if stage has been completed previously
+    if cfg.raft_stage == 1:
+        if all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):
+            log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
+            return None
+    elif cfg.raft_stage == 2:
+        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+            log.info(f"Stage 2 files are already present in {output_dir}. Skipping.")
+            return None
+    ### End Checks
+
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     tokenizer = AutoTokenizer.from_pretrained(cfg.raft_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
@@ -194,16 +209,13 @@ def main(cfg: Config):
         eval_data = None
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    model_short_name = cfg.raft_params.model_path.split("/")[-1]
-    wandb_run_name = f"RAFT_{model_short_name}_ep{cfg.raft_episode}"
-    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"CodeShield/{wandb_run_name}"
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     stage1_prompts = list(train_data["prompt"])
     log.info(f"Starting RAFT episode {cfg.raft_episode}")
     if cfg.raft_stage == 1:
         log.info(f"Processing {len(stage1_prompts)} prompts for stage one")
-        episode_completions = generate_completions(cfg, stage1_prompts, model_path_episode, tokenizer)
+        episode_completions = generate_completions(cfg, stage1_prompts, model_path_episode)
         log.info(f"Scoring {len(episode_completions)} prompts for stage two")
         scored_completions = score_completions(episode_completions, list(train_data["chosen_answer"]))
         with open(output_dir / "completions.pkl", "wb") as f:

@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
@@ -11,12 +10,12 @@ from datasets import Dataset, load_dataset
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
-import time
+
 import wandb
 from cerebrm_prompts import STAR_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
-from utils import get_generated_text, maybe_resume_training, run_inference
+from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -29,15 +28,6 @@ os.environ["WANDB_ENTITY"] = "CodeShield"
 os.environ["WANDB_PROJECT"] = "CerebRM-STAR"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-
-
-@dataclass
-class Message:
-    role: str
-    content: str
-
-
-Prompt = List[Message]
 
 
 def _create_prompts(example, cfg: Config, hinted=False):
@@ -59,9 +49,9 @@ def _create_prompts(example, cfg: Config, hinted=False):
     return example
 
 
-def generate_completions(cfg: Config, prompts: List[Prompt], model: str, tokenizer) -> List[str]:
+def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[str]:
     # Sampling K responses from the current model
-    responses = run_inference(prompts, model, temperature=0.0, max_tokens=8192, n=1, tp_size=torch.cuda.device_count(), tokenizer=tokenizer, max_model_len=12288)
+    responses = run_inference(prompts, model, temperature=0.0, max_tokens=8192, n=1, dp_size=torch.cuda.device_count(), tp_size=1, max_model_len=12288)
     completions = get_generated_text(responses)
     return [x[0] for x in completions]
 
@@ -129,15 +119,16 @@ def train_star_model(
 
 
 def _count_tokens(example, tokenizer):
-    prompt = example['prompt'] + example['completion']
+    prompt = example["prompt"] + example["completion"]
     prompt = tokenizer.apply_chat_template(
         prompt,
         tokenize=False,
         add_generation_prompt=False,
     )
     tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    example['num_tokens'] = len(tokenized_prompt)
+    example["num_tokens"] = len(tokenized_prompt)
     return example
+
 
 def create_messages_from_completions(prompts, completions):
     processed_prompts, processed_completions = [], []
@@ -153,9 +144,11 @@ def create_messages_from_completions(prompts, completions):
 def _by_tokens(example, max_tokens: int) -> bool:
     return example["num_tokens"] <= max_tokens
 
-def does_file_exist(file:Path)->bool:
+
+def does_file_exist(file: Path) -> bool:
     return file.exists()
-    
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     ### Sanity checks
@@ -163,7 +156,7 @@ def main(cfg: Config):
     assert cfg.star_episode >= 0, "Invalid star_episode. Must be a non-negative integer."
     model_short_name = cfg.star_params.model_path.split("/")[-1]
     wandb_run_name = f"star_{model_short_name}_ep{cfg.star_episode}"
-    model_path_episode = cfg.star_params.model_path if cfg.star_episode == 0 else f"wetsoledrysoul/star_{model_short_name}_ep{cfg.star_episode-1}"
+    model_path_episode = cfg.star_params.model_path if cfg.star_episode == 0 else f"wetsoledrysoul/star_{model_short_name}_ep{cfg.star_episode - 1}"
     output_dir = Path(f"{os.getenv('WORK')}/star_output/{wandb_run_name}")
     if cfg.star_stage == 2:
         if not all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
@@ -174,7 +167,7 @@ def main(cfg: Config):
     ### End sanity checks
 
     ### Check if stage has been completed previously
-    if cfg.star_stage==1:
+    if cfg.star_stage == 1:
         if all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
             log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
             return None
@@ -187,7 +180,7 @@ def main(cfg: Config):
             log.info(f"Stage 3 files are already present in {output_dir}. Skipping.")
             return None
     ### End Checks
-    
+
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     tokenizer = AutoTokenizer.from_pretrained(cfg.star_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
@@ -200,7 +193,7 @@ def main(cfg: Config):
     log.info(f"Starting star episode {cfg.star_episode}")
     if cfg.star_stage == 1:
         log.info(f"Processing {len(unhinted_prompts)} prompts for stage 1")
-        stage1_completions = generate_completions(cfg, unhinted_prompts, model_path_episode, tokenizer)
+        stage1_completions = generate_completions(cfg, unhinted_prompts, model_path_episode)
         log.info(f"Scoring {len(stage1_completions)} prompts for stage 1")
         scored_completions = score_completions(stage1_completions, list(train_data["chosen_answer"]))
         log.info(f"Number of correct responses in stage 1: {sum(scored_completions)} ({(sum(scored_completions) / len(scored_completions)) * 100:.2f}%)")
@@ -234,7 +227,7 @@ def main(cfg: Config):
         stage2_answers = list(train_data.select(stage2_indices)["chosen_answer"])
 
         log.info(f"Processing {len(stage2_prompts)} prompts for stage 2")
-        stage2_completions = generate_completions(cfg, stage2_prompts, model_path_episode, tokenizer)
+        stage2_completions = generate_completions(cfg, stage2_prompts, model_path_episode)
         log.info(f"Scoring {len(stage2_completions)} prompts for stage 2")
         scored_completions = score_completions(stage2_completions, stage2_answers)
         log.info(f"Number of correct responses in stage 2: {sum(scored_completions)} ({(sum(scored_completions) / len(scored_completions)) * 100:.2f}%)")
@@ -253,7 +246,7 @@ def main(cfg: Config):
         log.info(f"Completed Stage 2 of star episode {cfg.star_episode}")
     else:
         correct_prompts, correct_completions = [], []
-        for ep in range(cfg.star_episode+1):
+        for ep in range(cfg.star_episode + 1):
             episode_dir = output_dir.parent / f"star_{model_short_name}_ep{ep}"
             with open(episode_dir / "correct_prompts.pkl", "rb") as f:
                 correct_prompts.extend(pickle.load(f))
