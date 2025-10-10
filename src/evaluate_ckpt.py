@@ -133,8 +133,8 @@ def main(args):
     data = data.map(_create_prompts, fn_kwargs={"reward_type": args.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
     completions = run_inference(
-        prompts=prompts,
-        llm=args.eval_llm,
+        prompts,
+        args.eval_llm,
         temperature=0.6,
         max_tokens=args.max_tokens,
         tp_size=1,
