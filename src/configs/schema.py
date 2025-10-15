@@ -75,6 +75,8 @@ class RAFTParams:
     episode_num: int = None
     num_generations: int = None
     thinking_model: bool = None
+    gen_dp_size: int = None
+    max_samples_to_keep: int = None
 
 
 @dataclass
