@@ -23,6 +23,7 @@ raft_params:
     weight_decay: 1e-2
     episode_num: 0
     num_generations: 16
+    max_samples_to_keep: 5
 
 wandb_params:
     log_level: info

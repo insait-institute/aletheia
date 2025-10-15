@@ -5,3 +5,4 @@ raft_params:
     batch_size: 8
     gradient_accumulation_steps: 2
     thinking_model: False
+    gen_dp_size: 1

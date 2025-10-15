@@ -46,23 +46,21 @@ def _create_prompts(example, cfg: Config):
             ).strip(),
         },
     ]
-    if cfg.raft_params.thinking_model:
-        example["prompt"].append(
-            {"role": "assistant", "content": "<think>\n"},
-        )  # to avoid bug in reward calculation in older trl versions
     return example
 
 
 def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[List[str]]:
     # Sampling K responses from the current model
+    dp_size = cfg.raft_params.gen_dp_size if cfg.raft_params.gen_dp_size else torch.cuda.device_count()
+    tp_size = torch.cuda.device_count() // dp_size
     responses = run_inference(
         prompts,
         model,
         temperature=1.0,
         max_tokens=cfg.raft_params.max_length - 4096,
         n=cfg.raft_params.num_generations,
-        dp_size=torch.cuda.device_count(),
-        tp_size=1,
+        dp_size=dp_size,
+        tp_size=tp_size,
         max_model_len=cfg.raft_params.max_length,
     )
     completions = get_generated_text(responses)
@@ -114,7 +112,7 @@ def train_raft_model(
         report_to="wandb",
         run_name=wandb_run_name,
         # Saving parameters
-        hub_model_id=f"CodeShield/{wandb_run_name}",
+        hub_model_id=f"wetsoledrysoul/{wandb_run_name}",
         hub_private_repo=True,
         hub_strategy="end",
         save_strategy="steps",
@@ -153,13 +151,14 @@ def construct_data_for_training(stage1_prompts, episode_completions, scored_comp
         completions_list = [c for c, s in zip(completions_list, scores) if s]
         if not completions_list:
             continue
-        completion = random.sample(completions_list, 1)[0]
-        if prompt[-1]["role"] == "assistant":
-            completion = prompt[-1]["content"] + completion
-            prompt = prompt[:-1]
-        completion = [{"role": "assistant", "content": completion}]
-        prompts.append(prompt)
-        completions.append(completion)
+        completion_list = random.sample(completions_list, min(len(completions_list), cfg.raft_params.max_samples_to_keep))
+        for completion in completions_list:
+            if prompt[-1]["role"] == "assistant":
+                completion = prompt[-1]["content"] + completion
+                prompt = prompt[:-1]
+            completion = [{"role": "assistant", "content": completion}]
+            prompts.append(prompt)
+            completions.append(completion)
     # print(type(prompts), type(completions), type(prompts[0]), type(completions[0]), prompts[0], completions[0])
     num_tokens = [_count_tokens(prompt + completion, tokenizer) for prompt, completion in zip(prompts, completions)]
     return Dataset.from_dict({"prompt": prompts, "completion": completions, "num_tokens": num_tokens})
@@ -176,7 +175,7 @@ def main(cfg: Config):
     assert cfg.raft_episode >= 0, "Invalid raft_episode. Must be a non-negative integer."
     model_short_name = cfg.raft_params.model_path.split("/")[-1]
     wandb_run_name = f"RAFT_{model_short_name}_ep{cfg.raft_episode}"
-    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"CodeShield/{wandb_run_name}"
+    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"wetsoledrysoul/RAFT_{model_short_name}_ep{cfg.raft_episode-1}"
     output_dir = Path(f"{os.getenv('WORK')}/raft_output/{wandb_run_name}")
     if cfg.raft_stage == 2:
         if not all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):
@@ -196,7 +195,6 @@ def main(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     tokenizer = AutoTokenizer.from_pretrained(cfg.raft_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
-    train_data = train_data.shuffle(seed=cfg.raft_params.seed).select(range(5120))
     if cfg.data.val:
         eval_data = load_dataset(cfg.data.val)
         if "test_weak_easy" in eval_data:
