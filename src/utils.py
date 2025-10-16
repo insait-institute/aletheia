@@ -90,6 +90,7 @@ def run_inference(
     max_tokens=4096,
     n=1,
     enable_thinking: bool = False,
+    tokenizer=None,
     max_num_batched_tokens: int = 2048,
     **kwargs,
 ) -> List[RequestOutput]:
@@ -119,7 +120,8 @@ def run_inference(
     Returns:
         List[RequestOutput]: A list of generated responses per prompt. Each request output can contain multiple generations if n > 1.
     """
-    tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
+    if not tokenizer:
+        tokenizer = AutoTokenizer.from_pretrained(model, trust_remote_code=trust_remote_code)
     add_generation_prompt = not prompts[0][-1]["role"] == "assistant"
     prompts = tokenizer.apply_chat_template(
         prompts,
@@ -223,7 +225,7 @@ def _run_inference(
     temperature,
     max_tokens,
     n,
-    max_num_batched_tokens, 
+    max_num_batched_tokens,
     vllm_outputs=None,
     subset_prompts=None,
     start_idx=0,

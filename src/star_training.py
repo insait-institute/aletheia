@@ -192,7 +192,7 @@ def main(cfg: Config):
 
     log.info(f"Starting star episode {cfg.star_episode}")
     if cfg.star_stage == 1:
-        log.info(f"Processing {len(unhinted_prompts)} prompts for stage 1")
+        log.info(f"Processing {len(unhinted_prompts)} prompts for stage 1 with {model_path_episode}")
         stage1_completions = generate_completions(cfg, unhinted_prompts, model_path_episode)
         log.info(f"Scoring {len(stage1_completions)} prompts for stage 1")
         scored_completions = score_completions(stage1_completions, list(train_data["chosen_answer"]))
@@ -246,12 +246,10 @@ def main(cfg: Config):
         log.info(f"Completed Stage 2 of star episode {cfg.star_episode}")
     else:
         correct_prompts, correct_completions = [], []
-        for ep in range(cfg.star_episode + 1):
-            episode_dir = output_dir.parent / f"star_{model_short_name}_ep{ep}"
-            with open(episode_dir / "correct_prompts.pkl", "rb") as f:
-                correct_prompts.extend(pickle.load(f))
-            with open(episode_dir / "correct_completions.pkl", "rb") as f:
-                correct_completions.extend(pickle.load(f))
+        with open(output_dir / "correct_prompts.pkl", "rb") as f:
+            correct_prompts.extend(pickle.load(f))
+        with open(output_dir / "correct_completions.pkl", "rb") as f:
+            correct_completions.extend(pickle.load(f))
         stage3_data = Dataset.from_dict({"prompt": correct_prompts, "completion": correct_completions})
         stage3_data = stage3_data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting tokens")
         stage3_data = stage3_data.filter(_by_tokens, fn_kwargs={"max_tokens": cfg.star_params.max_length}, num_proc=NUM_WORKERS, desc="Filtering long sequences")
