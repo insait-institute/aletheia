@@ -147,13 +147,13 @@ def _by_tokens(example, max_tokens: int) -> bool:
     return example["num_tokens"] <= max_tokens
 
 
-def construct_data_for_training(stage1_prompts, episode_completions, scored_completions, tokenizer) -> Dataset:
+def construct_data_for_training(cfg, stage1_prompts, episode_completions, scored_completions, tokenizer) -> Dataset:
     prompts, completions, num_tokens = [], [], []
     for prompt, completions_list, scores in zip(stage1_prompts, episode_completions, scored_completions):
         completions_list = [c for c, s in zip(completions_list, scores) if s]
         if not completions_list:
             continue
-        completion_list = random.sample(completions_list, min(len(completions_list), cfg.raft_params.max_samples_to_keep))
+        completions_list = random.sample(completions_list, min(len(completions_list), cfg.raft_params.max_samples_to_keep))
         for completion in completions_list:
             if prompt[-1]["role"] == "assistant":
                 completion = prompt[-1]["content"] + completion
@@ -229,7 +229,7 @@ def main(cfg: Config):
             episode_completions = pickle.load(f)
         with open(output_dir / "scored_completions.pkl", "rb") as f:
             scored_completions = pickle.load(f)
-        stage3_data = construct_data_for_training(stage1_prompts, episode_completions, scored_completions, tokenizer)
+        stage3_data = construct_data_for_training(cfg, stage1_prompts, episode_completions, scored_completions, tokenizer)
         log.info(f"Training {model_path_episode} on {len(stage3_data)} examples in Stage 2")
         train_raft_model(cfg, model_path_episode, stage3_data, wandb_run_name, output_dir, eval_data)
         log.info(f"Completed Stage 2 of RAFT episode {cfg.raft_episode}")
