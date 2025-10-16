@@ -8,12 +8,10 @@ import re
 from pathlib import Path
 
 import python_minifier
-import torch
 from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
-from transformers import AutoTokenizer
-from vllm import LLM
 
 from c_minifier import CMinifier
+from cerebrm_prompts import CODE_COMMENTING_SYSPROMPT, CODE_TESTING_SYSPROMPT, DEADCODE_SYSPROMPT
 from codecrash import descriptive_misleading_comments
 from obscuracoder import TSConObfuscator
 from utils import run_inference
@@ -24,16 +22,6 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 logger.addHandler(ch)
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-CODE_COMMENTING_SYSPROMPT = """
-You will be given a coding question and a candidate solution. You must add a docstring to all the functions and comments to every line in the solution. Preserve the original functionality of the code exactly as it is, and do not modify any existing identifiers or underlying logic. Return the modified code as a single markdown-formatted code block. You may think step-by-step before responding with a markdown-formatted code block.
-"""  # noqa: E501
-CODE_TESTING_SYSPROMPT = """
-You will be given a coding question and a candidate solution. You must add assertion statements to the solution, checking for input constraints as well as intermediate sanity checks. Preserve the original functionality of the code exactly as it is, and do not modify any existing identifiers or underlying logic. Return the modified code as a single markdown-formatted code block. You may think step-by-step before responding with a markdown-formatted code block.
-"""  # noqa: E501
-DEADCODE_SYSPROMPT = """
-You will be given a coding question and a candidate solution. You must add garbage or unreachable code to the solution (e.g. infinite loops, unused variables, dead code). Enclose your added code within "GARBAGE CODE START" and "GARBAGE CODE END" comments. DO NOT add any other comments. Preserve the original functionality of the code exactly as it is, and do not modify any existing identifiers or underlying logic. Return the modified code as a single markdown-formatted code block. You may think step-by-step before responding with a markdown-formatted code block.
-"""  # noqa: E501
-
 # For Js and ruby minification, https://github.com/mishoo/UglifyJS and https://github.com/koic/minifyrb can be used.
 
 
@@ -180,7 +168,7 @@ class CodeModifier:
             self.language,
             rule,
         )
-        ret = obs.obfuscate(code, obfuscateImportedIDs=False, obfuscateImportedModules=False, obfuscatePropotion=True, randomProportion=False)
+        ret = obs.obfuscate(code, obfuscateImportedIDs=False, obfuscateImportedModules=False, obfuscatePropotion=False)
         obf_code = ret["obfCode"]
         obf_dict = ast.literal_eval(ret["obsDict"])
         obf_dict = {v: k for k, v in obf_dict.items()}
@@ -329,8 +317,6 @@ def _remove_gc_indication(example, col):
 
 
 def main():
-    llm = LLM("Qwen/Qwen3-235B-A22B-Instruct-2507", tensor_parallel_size=torch.cuda.device_count(), gpu_memory_utilization=0.95, enable_expert_parallel=True, max_model_len=20480)
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-235B-A22B-Instruct-2507")
     data = load_dataset("wetsoledrysoul/RQ4-Set", revision="5532e36e804bc0ba8760a2b83b000e04ab01d78b")["test"]
     data = data.map(_remove_md, num_proc=NUM_WORKERS, desc="Removing markdown formatting")
 
@@ -348,7 +334,7 @@ def main():
     fluff_bias = copy.deepcopy(data)
     fluff_bias = fluff_bias.map(remove_all_comments, num_proc=NUM_WORKERS, desc="Removing all comments from both codes")
     comment_prompts = [construct_comment_prompt(code, question, language) for code, question, language in zip(fluff_bias["rejected"], fluff_bias["query"], fluff_bias["language"])]
-    commented_codes = run_inference(comment_prompts, llm, tokenizer=tokenizer, temperature=0.7, top_p=0.8, top_k=20, min_p=0)
+    commented_codes = run_inference(comment_prompts, "Qwen/Qwen3-235B-A22B-Instruct-2507", temperature=0.7, top_p=0.8, top_k=20, min_p=0, tp_size=4, dp_size=2, enable_expert_parallel=True)
     with open("/work/vatsal_venkatkrishna/commented_codes.pkl", "wb") as f:
         pickle.dump(commented_codes, f)
     fluff_bias = fluff_bias.remove_columns("rejected")
@@ -359,7 +345,7 @@ def main():
     # Adding asserts for sanity and input checking
     test_bias = copy.deepcopy(data)
     test_prompts = [construct_test_prompt(code, question, language) for code, question, language in zip(test_bias["rejected"], test_bias["query"], test_bias["language"])]
-    test_codes = run_inference(test_prompts, llm, tokenizer=tokenizer, temperature=0.7, top_p=0.8, top_k=20, min_p=0)
+    test_codes = run_inference(test_prompts, "Qwen/Qwen3-235B-A22B-Instruct-2507", temperature=0.7, top_p=0.8, top_k=20, min_p=0, tp_size=4, dp_size=2, enable_expert_parallel=True)
     with open("/work/vatsal_venkatkrishna/assert_codes.pkl", "wb") as f:
         pickle.dump(test_codes, f)
     test_bias = test_bias.remove_columns("rejected")
@@ -372,7 +358,9 @@ def main():
     dead_code_prompts = [
         construct_dead_code_prompt(code, question, language) for code, question, language in zip(dead_code_rejected["rejected"], dead_code_rejected["query"], dead_code_rejected["language"])
     ]
-    dead_code_outputs_rejected = run_inference(dead_code_prompts, llm, tokenizer=tokenizer, temperature=0.7, top_p=0.8, top_k=20, min_p=0)
+    dead_code_outputs_rejected = run_inference(
+        dead_code_prompts, "Qwen/Qwen3-235B-A22B-Instruct-2507", temperature=0.7, top_p=0.8, top_k=20, min_p=0, tp_size=4, dp_size=2, enable_expert_parallel=True
+    )
     with open("/work/vatsal_venkatkrishna/dead_code_outputs_rejected.pkl", "wb") as f:
         pickle.dump(dead_code_outputs_rejected, f)
     dead_code_rejected = dead_code_rejected.remove_columns("rejected")
@@ -384,7 +372,7 @@ def main():
     # Adding dead code to the chosen code
     dead_code_chosen = copy.deepcopy(data)
     dead_code_prompts = [construct_dead_code_prompt(code, question, language) for code, question, language in zip(dead_code_chosen["chosen"], dead_code_chosen["query"], dead_code_chosen["language"])]
-    dead_code_outputs_chosen = run_inference(dead_code_prompts, llm, tokenizer=tokenizer, temperature=0.7, top_p=0.8, top_k=20, min_p=0)
+    dead_code_outputs_chosen = run_inference(dead_code_prompts, "Qwen/Qwen3-235B-A22B-Instruct-2507", temperature=0.7, top_p=0.8, top_k=20, min_p=0, tp_size=4, dp_size=2, enable_expert_parallel=True)
     with open("/work/vatsal_venkatkrishna/dead_code_outputs_chosen.pkl", "wb") as f:
         pickle.dump(dead_code_outputs_chosen, f)
     dead_code_chosen = dead_code_chosen.remove_columns("chosen")
@@ -437,7 +425,7 @@ def main():
     )
     logger.info(f"Final dataset: {final}")
     final = final.map(_remove_md, num_proc=NUM_WORKERS, desc="Sanity check: Removing markdown formatting in final set")
-    final.push_to_hub("CodeShield/RQ4-Set", private=True, max_shard_size="5GB")
+    # final.push_to_hub("CodeShield/RQ4-Set", private=True, max_shard_size="5GB")
     final.push_to_hub("wetsoledrysoul/RQ4-Set", private=True, max_shard_size="5GB")
 
 

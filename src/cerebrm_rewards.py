@@ -4,7 +4,7 @@ from typing import List
 
 import numpy as np
 
-DAPO_ARGS = {"L_max": 32768, "L_cache": 4096}
+DAPO_ARGS = {"L_max": 16384, "L_cache": 2048}
 
 
 def extract_boxed_contents_score10(text: str) -> List[int]:

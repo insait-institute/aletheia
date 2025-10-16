@@ -87,11 +87,10 @@ class TSConObfuscator:
         obfuscateImportedModules=True,
         obfuscateImportedIDs=True,
         obfuscatePropotion=False,
-        randomProportion=True,
     ):
         signal.alarm(self.timeOut)
         try:
-            obsPropotion = random.random() if randomProportion else 1.0
+            obsPropotion = random.random()
             doc = Document(code)
             if self.language in ["python", "typescript"]:
                 if len(doc.lines) > PYTS_MAX_CODE_LENGTH:
