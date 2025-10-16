@@ -90,6 +90,7 @@ def run_inference(
     max_tokens=4096,
     n=1,
     enable_thinking: bool = False,
+    max_num_batched_tokens: int = 2048,
     **kwargs,
 ) -> List[RequestOutput]:
     """
@@ -175,6 +176,7 @@ def run_inference(
                 temperature,
                 max_tokens,
                 n,
+                max_num_batched_tokens,
             ),
             kwargs={
                 **kwargs,
@@ -221,6 +223,7 @@ def _run_inference(
     temperature,
     max_tokens,
     n,
+    max_num_batched_tokens, 
     vllm_outputs=None,
     subset_prompts=None,
     start_idx=0,
@@ -238,7 +241,6 @@ def _run_inference(
     if subset_prompts is None:
         subset_prompts = ["__placeholder__"]
     log.info(f"[DP Rank {global_dp_rank}] Processing {len(subset_prompts)} prompts")
-
     sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens, n=n, **kwargs)
     llm = LLM(
         model=model,
@@ -251,6 +253,7 @@ def _run_inference(
         gpu_memory_utilization=gpu_memory_utilization,
         quantization=quantization,
         compilation_config=compilation_config,
+        max_num_batched_tokens=max_num_batched_tokens,
     )
     outputs = llm.generate(subset_prompts, sampling_params)
     # Print the outputs.

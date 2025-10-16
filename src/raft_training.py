@@ -61,6 +61,8 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
         n=cfg.raft_params.num_generations,
         dp_size=dp_size,
         tp_size=tp_size,
+        max_num_batched_tokens=16384,
+        max_num_seqs=256,
         max_model_len=cfg.raft_params.max_length,
     )
     completions = get_generated_text(responses)
