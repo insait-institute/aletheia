@@ -1,6 +1,6 @@
 # @package _global_
 
-raft_params:
+genrm_params:
     model_path: Qwen/Qwen2.5-14B-Instruct
     batch_size: 2
     gradient_accumulation_steps: 8

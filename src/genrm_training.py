@@ -46,7 +46,7 @@ def _create_training_dataset(example):
 
 def train_model(
     cfg: Config,
-    model_path_episode: str,
+    model_name: str,
     data: Dataset,
     wandb_run_name: str,
     output_dir: str,
@@ -94,7 +94,7 @@ def train_model(
         remove_unused_columns=False,
         use_liger_kernel=True,
     )
-    trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=data)
+    trainer = SFTTrainer(model=model_name, args=config, train_dataset=data)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
