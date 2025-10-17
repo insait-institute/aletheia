@@ -11,7 +11,7 @@ from trl import SFTConfig, SFTTrainer
 import wandb
 from cerebrm_prompts import GENRM_PROMPT
 from configs.schema import Config
-from utils import Prompt, maybe_resume_training
+from utils import maybe_resume_training
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -99,14 +99,16 @@ def train_model(
     trainer.push_to_hub()
 
 
-def _count_tokens(prompt: Prompt, tokenizer) -> int:
+def _count_tokens(example, tokenizer):
+    prompt = example["prompt"] + example["completion"]
     prompt = tokenizer.apply_chat_template(
         prompt,
         tokenize=False,
         add_generation_prompt=False,
     )
     tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    return len(tokenized_prompt)
+    example["num_tokens"] = len(tokenized_prompt)
+    return example
 
 
 def _by_tokens(example, max_tokens: int) -> bool:
