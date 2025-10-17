@@ -1,8 +1,6 @@
 import logging
 import os
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 import hydra
 from datasets import Dataset, load_dataset
@@ -13,7 +11,7 @@ from trl import SFTConfig, SFTTrainer
 import wandb
 from cerebrm_prompts import GENRM_PROMPT
 from configs.schema import Config
-from utils import maybe_resume_training
+from utils import Prompt, maybe_resume_training
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -26,15 +24,6 @@ os.environ["WANDB_ENTITY"] = "CodeShield"
 os.environ["WANDB_PROJECT"] = "CerebRM-GenRM"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
-
-
-@dataclass
-class Message:
-    role: str
-    content: str
-
-
-Prompt = List[Message]
 
 
 def _create_training_dataset(example):
@@ -51,7 +40,7 @@ def _create_training_dataset(example):
             ).strip(),
         },
     ]
-    example["completion"] = [{"role": "assistant", "content": f"{example['chosen_answer']}"}]
+    example["completion"] = [{"role": "assistant", "content": f"\\boxed{{{example['chosen_answer']}}}"}]
     return example
 
 
@@ -97,7 +86,6 @@ def train_model(
         hub_strategy="end",
         save_strategy="steps",
         save_steps=cfg.genrm_params.save_steps,
-        save_total_limit=cfg.genrm_params.save_total_limit,
         # Data parameters
         data_seed=cfg.genrm_params.seed,
         dataloader_drop_last=True,
@@ -125,17 +113,24 @@ def _by_tokens(example, max_tokens: int) -> bool:
     return example["num_tokens"] <= max_tokens
 
 
+def does_file_exist(file: Path) -> bool:
+    return file.exists()
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
-    output_dir = Path(f"{os.getenv('WORK')}/genrm_output")
+    model_short_name = cfg.genrm_params.model_path.split("/")[-1]
+    wandb_run_name = f"genrm_{model_short_name}"
+    output_dir = Path(f"{os.getenv('WORK')}/genrm_output/{wandb_run_name}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+        log.info(f"GenRM training files are already present in {output_dir}. Skipping.")
+        return None
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model_short_name = cfg.genrm_params.model_path.split("/")[-1]
-    wandb_run_name = f"genrm_{model_short_name}_ep{cfg.genrm_episode}"
 
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
 
