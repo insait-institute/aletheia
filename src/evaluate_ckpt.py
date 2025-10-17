@@ -13,7 +13,7 @@ from typing import List
 
 from datasets import load_dataset
 
-from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, RAFT_PROMPT_NOTHINK, RAFT_PROMPT_THINK, STAR_PROMPT
 from utils import run_inference
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
@@ -53,46 +53,50 @@ def extract_boxed_contents_list(text: str) -> List[int]:
     return matches
 
 
-def _create_prompts(example, reward_type):
+def _create_prompts(example, model_name):
+    model_name = model_name.lower()
     example["correct_ans"] = "[[A]]"
     candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
     if random.random() > 0.5:
         example["correct_ans"] = "[[B]]"
         candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
 
-    if reward_type == "list_em" or reward_type == "list_dist":
+    PROMPT = LIST_REWARD_PROMPT
+    valid_options = "[[A]], [[B]]"
+
+    if "star" in model_name:
+        PROMPT = STAR_PROMPT
+    elif "raft" in model_name:
+        if "deepseek" in model_name:
+            PROMPT = RAFT_PROMPT_THINK
+        else:
+            PROMPT = RAFT_PROMPT_NOTHINK
+    elif "judge_lrm" in model_name:
+        PROMPT = JUDGELRM_PROMPT
+        valid_options = None
+    elif "ds_grm" in model_name:
+        PROMPT = DS_GRM_PROMPT
+        valid_options = None
+    if valid_options:
         example["prompt"] = [
             {
                 "role": "user",
-                "content": LIST_REWARD_PROMPT.format(
+                "content": PROMPT.format(
                     question=example["query"],
                     candidates=candidate_str,
-                    valid_options="[[A]], [[B]]",
+                    valid_options=valid_options,
                 ).strip(),
             },
-            {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
         ]
-    elif reward_type == "judge_lrm":
+    else:
         example["prompt"] = [
             {
                 "role": "user",
-                "content": JUDGELRM_PROMPT.format(
+                "content": PROMPT.format(
                     question=example["query"],
                     candidates=candidate_str,
                 ).strip(),
             },
-            {"role": "assistant", "content": "<think>\n"},
-        ]
-    elif reward_type == "ds_grm":
-        example["prompt"] = [
-            {
-                "role": "user",
-                "content": DS_GRM_PROMPT.format(
-                    question=example["query"],
-                    candidates=candidate_str,
-                ).strip(),
-            },
-            {"role": "assistant", "content": "<think>\n"},
         ]
     return example
 
@@ -122,15 +126,15 @@ def main(args):
     else:
         data = load_dataset("wetsoledrysoul/RQ4-Set", split="original")
     if args.reward_type is None:
-        if "list_em" in args.eval_llm or "list_dist" in args.eval_llm:
+        if "list_dist" in args.eval_llm:
+            args.reward_type = "list_dist"
+        elif "list_em" in args.eval_llm:
             args.reward_type = "list_em"
         elif "judge_lrm" in args.eval_llm:
             args.reward_type = "judge_lrm"
         elif "ds_grm" in args.eval_llm:
             args.reward_type = "ds_grm"
-        else:
-            args.reward_type = "list_em"
-    data = data.map(_create_prompts, fn_kwargs={"reward_type": args.reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
     completions = run_inference(
         prompts,
@@ -144,11 +148,11 @@ def main(args):
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
 
-    if args.reward_type in ["list_em", "list_dist"]:
-        model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
-    else:
+    if args.reward_type in ["judge_lrm", "ds_grm"]:
         scores = [[extract_boxed_contents_score10(y) for y in x] for x in completions]
         model_answers = [[interpret_scores(y) for y in x] for x in scores]
+    else:
+        model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
 
     accuracies = []
     for correct_ans, answers in zip(data["correct_ans"], model_answers):
@@ -186,7 +190,7 @@ def main(args):
         writer.writerow(
             {
                 "eval_llm": args.eval_llm,
-                "reward_type": args.reward_type,
+                "reward_type": args.reward_type if args.reward_type else "-",
                 "K": args.K,
                 "data": args.data,
                 "max_tokens": args.max_tokens,
