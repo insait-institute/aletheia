@@ -30,8 +30,8 @@ def _filter_pairs(example):
 
 
 def _create_prompts(example, grpo_reward_type):
-    potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     if grpo_reward_type in ["list_em", "list_dist", "pair"]:
         example["prompt"] = [

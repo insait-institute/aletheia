@@ -27,8 +27,8 @@ NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") e
 
 
 def _create_training_dataset(example):
-    potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     example["prompt"] = [
         {

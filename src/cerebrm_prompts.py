@@ -7,7 +7,7 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 
 {candidates}
 
-You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Enclose your final answer in the format \\boxed{{[[X]]}}, where [[X]] is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly one of the options enclosed within \\boxed{{}}, without any extra characters or spaces. Anything else will be considered invalid.
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Enclose your final answer in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly one of the options enclosed within \\boxed{{}}, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
 JUDGELRM_PROMPT = """
@@ -43,9 +43,9 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 
 {candidates}
 
-You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Think carefully, step-by-step before responding with one of the options in the format \\boxed{{[[X]]}}, where [[X]] is your chosen option among the candidates. Your output should look like:
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Think carefully, step-by-step before responding with one of the options in the format \\boxed{{X}}, where X is your chosen option among the candidates. Your output should look like:
 Analysis: <your step by step analysis here>
-Final Answer: \\boxed{{[[X]]}}
+Final Answer: \\boxed{{X}}
 Do not provide any explanations or additional text beyond the analysis and final answer. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
@@ -58,7 +58,7 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 
 {candidates}
 
-You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Enclose your final answer in the format \\boxed{{[[X]]}}, where [[X]] is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly one of the options enclosed within \\boxed{{}}, without any extra characters or spaces. Anything else will be considered invalid.
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Enclose your final answer in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly one of the options enclosed within \\boxed{{}}, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
 STAR_PROMPT = RAFT_PROMPT_NOTHINK
@@ -72,7 +72,7 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 
 {candidates}
 
-You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Respond with one of the options in the format \\boxed{{[[X]]}}, where [[X]] is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Respond with one of the options in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
 CODE_COMMENTING_SYSPROMPT = """

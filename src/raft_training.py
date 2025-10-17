@@ -32,8 +32,8 @@ NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") e
 
 
 def _create_prompts(example, cfg: Config):
-    potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     RAFT_PROMPT = RAFT_PROMPT_THINK if cfg.raft_params.thinking_model else RAFT_PROMPT_NOTHINK
     example["prompt"] = [
@@ -177,7 +177,7 @@ def main(cfg: Config):
     assert cfg.raft_episode >= 0, "Invalid raft_episode. Must be a non-negative integer."
     model_short_name = cfg.raft_params.model_path.split("/")[-1]
     wandb_run_name = f"RAFT_{model_short_name}_ep{cfg.raft_episode}"
-    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"wetsoledrysoul/RAFT_{model_short_name}_ep{cfg.raft_episode-1}"
+    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"wetsoledrysoul/RAFT_{model_short_name}_ep{cfg.raft_episode - 1}"
     output_dir = Path(f"{os.getenv('WORK')}/raft_output/{wandb_run_name}")
     if cfg.raft_stage == 2:
         if not all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):

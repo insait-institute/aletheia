@@ -62,10 +62,10 @@ def list_format_reward(completions, num_candidates, **kwargs):
         List[float]: A list of rewards for each completion.
     """
     pattern_dict = {
-        2: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[AB]\]\]}$",
-        3: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABC]\]\]}$",
-        4: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABCD]\]\]}$",
-        5: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{\[\[[ABCDE]\]\]}$",
+        2: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{[AB]}$",
+        3: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{[ABC]}$",
+        4: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{[ABCD]}$",
+        5: r"^<think>(?!.*<think>)(.*?)</think>\s*\\boxed{[ABCDE]}$",
     }
 
     completion_contents = [completion[0]["content"].strip() for completion in completions]
@@ -115,7 +115,7 @@ def list_reward_with_distance(completions, pass_rates, num_candidates, **kwargs)
     contents = [extract_boxed_contents_list(completion) for completion in contents]
     for completion, pass_rate, num_candidate in zip(contents, pass_rates, num_candidates):
         # Generate possible answers up to num_candidates
-        possible_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][:num_candidate]
+        possible_answers = ["A", "B", "C", "D", "E"][:num_candidate]
         possible_rewards = [1, -0.8, -0.6, -0.4, -0.2][:num_candidate]
         possible_rewards = sorted(possible_rewards, reverse=True)
         # Map answers to their pass rates

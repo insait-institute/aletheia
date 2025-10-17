@@ -178,8 +178,8 @@ def add_results_to_completions(example, dct):
 
 
 def _count_prompt_tokens(example):
-    potential_answers = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i[2]}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i[2]}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     max_prompt_tokens = -1
     for reward_type in ["list_dist", "judge_lrm", "ds_grm"]:
@@ -259,7 +259,7 @@ def main():
 
     # 90% of the completions are less than 800 tokens. Set that as the limit
     data = data.map(pass_rates_and_filter, num_proc=NUM_WORKERS, remove_columns=["num_passed", "num_failed"])
-    answer_list = ["[[A]]", "[[B]]", "[[C]]", "[[D]]", "[[E]]"]
+    answer_list = ["A", "B", "C", "D", "E"]
     weak_easy, weak_hard, strong_easy = [], [], []
     for example in data:
         example["description"] = example["description"].split("\nExample\n")[0].split("\nExamples\n")[0].strip()

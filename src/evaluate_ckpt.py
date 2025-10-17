@@ -55,14 +55,14 @@ def extract_boxed_contents_list(text: str) -> List[int]:
 
 def _create_prompts(example, model_name):
     model_name = model_name.lower()
-    example["correct_ans"] = "[[A]]"
+    example["correct_ans"] = "A"
     candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
     if random.random() > 0.5:
-        example["correct_ans"] = "[[B]]"
+        example["correct_ans"] = "B"
         candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
-
+    
     PROMPT = LIST_REWARD_PROMPT
-    valid_options = "[[A]], [[B]]"
+    valid_options = "A, B"
 
     if "star" in model_name:
         PROMPT = STAR_PROMPT
@@ -103,13 +103,13 @@ def _create_prompts(example, model_name):
 
 def interpret_scores(scores: List[int]) -> str:
     if len(scores) != 2:
-        return "[[Invalid]]"  # Indeterminate if we don't have exactly two scores
+        return "Invalid"  # Indeterminate if we don't have exactly two scores
     if scores[0] > scores[1]:
-        return "[[A]]"
+        return "A"
     elif scores[1] > scores[0]:
-        return "[[B]]"
+        return "B"
     else:
-        return "[[Invalid]]"  # Indeterminate if scores are equal
+        return "Invalid"  # Indeterminate if scores are equal
 
 
 def main(args):
