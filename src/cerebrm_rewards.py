@@ -23,7 +23,7 @@ def extract_boxed_contents_score10(text: str) -> List[int]:
     return matches
 
 
-def extract_boxed_contents_list(text: str) -> List[int]:
+def extract_boxed_contents_list(text: str) -> str:
     """
     Extracts all contents within \\boxed{...} from a given text string,
     after normalizing braces.
