@@ -11,7 +11,6 @@ from pathlib import Path
 from datasets import load_dataset
 
 from cerebrm_prompts import LIST_REWARD_PROMPT
-from cerebrm_rewards import extract_boxed_contents_list
 from utils import run_inference
 
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
@@ -55,18 +54,12 @@ def main(args):
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
 
-    # Score all the completions
-    model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
-    correctness_labels = [[z == x for z in y] for x, y in zip(data["chosen_answer"], model_answers)]
-
     # store the results
     output_dir = Path(os.getenv("WORK")) / "think_dpo" / args.size
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_dir / "completions.pkl", "wb") as f:
         pickle.dump(completions, f)
-    with open(output_dir / "correctness_labels.pkl", "wb") as f:
-        pickle.dump(correctness_labels, f)
 
     print(f"Data generation complete for {args.size}!")
 
