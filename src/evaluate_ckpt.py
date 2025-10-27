@@ -60,7 +60,7 @@ def _create_prompts(example, model_name):
     if random.random() > 0.5:
         example["correct_ans"] = "B"
         candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
-    
+
     PROMPT = LIST_REWARD_PROMPT
     valid_options = "A, B"
 
@@ -141,6 +141,7 @@ def main(args):
         args.eval_llm,
         temperature=0.6,
         max_tokens=args.max_tokens,
+        max_model_len=args.max_tokens + 4096,
         tp_size=1,
         top_p=0.95,
         n=args.K,
