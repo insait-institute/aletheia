@@ -53,13 +53,13 @@ def main(args):
         max_model_len=20480,
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
-
+    save_dict = {i: c for i, c in zip(data["idx"], completions)}
     # store the results
     output_dir = Path(os.getenv("WORK")) / "think_dpo" / args.size
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_dir / "completions.pkl", "wb") as f:
-        pickle.dump(completions, f)
+        pickle.dump(save_dict, f)
 
     print(f"Data generation complete for {args.size}!")
 
