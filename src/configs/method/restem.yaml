@@ -24,6 +24,7 @@ restem_params:
     episode_num: 0
     num_generations: 16
     max_samples_to_keep: 5
+    stage1_num_saves: 10
 
 wandb_params:
     log_level: info

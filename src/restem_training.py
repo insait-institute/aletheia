@@ -169,6 +169,11 @@ def does_file_exist(file: Path) -> bool:
     return file.exists()
 
 
+def _shard(prompts: list, n: int) -> list[list]:
+    k, r = divmod(len(prompts), n)
+    return [prompts[i * k + min(i, r) : (i + 1) * k + min(i + 1, r)] for i in range(n)]
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     ### Sanity checks
@@ -213,16 +218,37 @@ def main(cfg: Config):
     stage1_prompts = list(train_data["prompt"])
     log.info(f"Starting restem episode {cfg.restem_episode}")
     if cfg.restem_stage == 1:
-        log.info(f"Processing {len(stage1_prompts)} prompts for stage one")
-        episode_completions = generate_completions(cfg, stage1_prompts, model_path_episode)
-        log.info(f"Scoring {len(episode_completions)} prompts for stage two")
-        scored_completions = score_completions(episode_completions, list(train_data["chosen_answer"]))
-        with open(output_dir / "completions.pkl", "wb") as f:
-            pickle.dump(episode_completions, f)
-        with open(output_dir / "scored_completions.pkl", "wb") as f:
-            pickle.dump(scored_completions, f)
+        num_shards = cfg.restem_params.stage1_num_saves if cfg.restem_params.stage1_num_saves else 1
+        sharded_prompts = _shard(stage1_prompts, num_shards)
+        for shard_idx, shard_prompts in enumerate(sharded_prompts):
+            shard_outfiles = [f"completions_{shard_idx}.pkl", f"scored_completions_{shard_idx}.pkl"]
+            if all([does_file_exist(output_dir / outfile) for outfile in shard_outfiles]):
+                log.info(f"Shard {shard_idx} already processed. Skipping.")
+                continue
+            log.info(f"Processing shard {shard_idx + 1}/{num_shards}")
+            # Check if shard has already been processed
+            shard_completions = generate_completions(cfg, shard_prompts, model_path_episode)
+            log.info(f"Scoring {len(shard_completions)} prompts")
+            shard_scored_completions = score_completions(shard_completions, list(train_data["chosen_answer"]))
+            with open(output_dir / f"completions_{shard_idx}.pkl", "wb") as f:
+                pickle.dump(shard_completions, f)
+            with open(output_dir / f"scored_completions_{shard_idx}.pkl", "wb") as f:
+                pickle.dump(shard_scored_completions, f)
+            log.info(f"Completed shard {shard_idx + 1}/{num_shards}")
+        # Cleanup sharded files
+        all_completions, all_scored_completions = [], []
+        for shard_idx in range(num_shards):
+            with open(output_dir / f"completions_{shard_idx}.pkl", "rb") as f:
+                all_completions.extend(pickle.load(f))
+            with open(output_dir / f"scored_completions_{shard_idx}.pkl", "rb") as f:
+                all_scored_completions.extend(pickle.load(f))
+            (output_dir / f"completions_{shard_idx}.pkl").unlink(missing_ok=True)
+            (output_dir / f"scored_completions_{shard_idx}.pkl").unlink(missing_ok=True)
         log.info(f"Completed Stage 1 of restem episode {cfg.restem_episode}")
-
+        with open(output_dir / "completions.pkl", "wb") as f:
+            pickle.dump(all_completions, f)
+        with open(output_dir / "scored_completions.pkl", "wb") as f:
+            pickle.dump(all_scored_completions, f)
     else:
         with open(output_dir / "completions.pkl", "rb") as f:
             episode_completions = pickle.load(f)
