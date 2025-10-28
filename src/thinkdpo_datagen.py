@@ -37,16 +37,17 @@ def _create_prompts(example):
 def main(args):
     data = load_dataset("CodeShield/CerebRM-Dataset")["train"]
     data = data.map(_create_prompts, num_proc=NUM_WORKERS, desc="Creating prompts")
-    data = data.add_column("idx", [f"train_{i}" for i, _ in enumerate(data)])
+    if args.wrong_indices_file:
+        wrong_indices = Path(args.wrong_indices_file).read_text().splitlines()
+        data = data.filter(lambda x: x["idx"] in wrong_indices, num_proc=NUM_WORKERS, desc="Filtering wrong answers")
     prompts = list(data["prompt"])
-
     # Generate completions using Deepseek-R1-Distill-Qwen
     model = f"deepseek-ai/Deepseek-R1-Distill-Qwen-{args.size}"
     completions = run_inference(
         prompts,
         model,
         temperature=0.6,
-        n=4,
+        n=args.K,
         gpu_memory_utilization=0.95,
         tp_size=1,
         max_tokens=16384,
@@ -57,7 +58,9 @@ def main(args):
     # store the results
     output_dir = Path(os.getenv("WORK")) / "think_dpo" / args.size
     output_dir.mkdir(parents=True, exist_ok=True)
-
+    if args.wrong_indices_file:
+        output_dir = output_dir / "regenerated"
+        output_dir.mkdir(parents=True, exist_ok=True)
     with open(output_dir / "completions.pkl", "wb") as f:
         pickle.dump(save_dict, f)
 
@@ -67,5 +70,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--size", type=str, choices=["1.5B", "7B", "14B"], required=True, help="Model size to use for data generation")
+    parser.add_argument("--wrong-indices-file", type=str, default=None, help="Path to a file containing indices of wrong answers.  If not given, inference is done on all examples.")
+    parser.add_argument("--K", type=int, default=4, help="Number of completions to generate per prompt.")
     args = parser.parse_args()
     main(args)
