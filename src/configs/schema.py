@@ -52,7 +52,7 @@ class GenParams:
 
 
 @dataclass
-class RAFTParams:
+class RESTEMParams:
     batch_size: int = None
     deepspeed_config_path: str = None
     gradient_accumulation_steps: int = None
@@ -135,13 +135,13 @@ class Config:
     data: Optional[Data] = field(default_factory=Data)
     gen_params: Optional[GenParams] = field(default_factory=GenParams)
     grpo_params: Optional[GRPOParams] = field(default_factory=GRPOParams)
-    raft_params: Optional[RAFTParams] = field(default_factory=RAFTParams)
+    restem_params: Optional[RESTEMParams] = field(default_factory=RESTEMParams)
     genrm_params: Optional[GenRMParams] = field(default_factory=GenRMParams)
     star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
     grpo_reward_type: Optional[str] = None
     grpo_use_lora: Optional[bool] = None
-    raft_stage: Optional[int] = None
-    raft_episode: Optional[int] = None
+    restem_stage: Optional[int] = None
+    restem_episode: Optional[int] = None
     star_stage: Optional[int] = None
     star_episode: Optional[int] = None

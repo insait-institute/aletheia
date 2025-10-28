@@ -13,7 +13,7 @@ from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 import wandb
-from cerebrm_prompts import RAFT_PROMPT_NOTHINK, RAFT_PROMPT_THINK
+from cerebrm_prompts import LIST_REWARD_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
 from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
@@ -26,7 +26,7 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 log.addHandler(ch)
 os.environ["WANDB_ENTITY"] = "CodeShield"
-os.environ["WANDB_PROJECT"] = "CerebRM-RAFT"
+os.environ["WANDB_PROJECT"] = "CerebRM-restem"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
@@ -35,11 +35,10 @@ def _create_prompts(example, cfg: Config):
     potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
-    RAFT_PROMPT = RAFT_PROMPT_THINK if cfg.raft_params.thinking_model else RAFT_PROMPT_NOTHINK
     example["prompt"] = [
         {
             "role": "user",
-            "content": RAFT_PROMPT.format(
+            "content": LIST_REWARD_PROMPT.format(
                 question=example["query"],
                 candidates=candidate_str,
                 valid_options=", ".join(potential_answers),
@@ -51,19 +50,19 @@ def _create_prompts(example, cfg: Config):
 
 def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[List[str]]:
     # Sampling K responses from the current model
-    dp_size = cfg.raft_params.gen_dp_size if cfg.raft_params.gen_dp_size else torch.cuda.device_count()
+    dp_size = cfg.restem_params.gen_dp_size if cfg.restem_params.gen_dp_size else torch.cuda.device_count()
     tp_size = torch.cuda.device_count() // dp_size
     responses = run_inference(
         prompts,
         model,
         temperature=1.0,
-        max_tokens=cfg.raft_params.max_length - 4096,
-        n=cfg.raft_params.num_generations,
+        max_tokens=cfg.restem_params.max_length - 4096,
+        n=cfg.restem_params.num_generations,
         dp_size=dp_size,
         tp_size=tp_size,
         max_num_batched_tokens=16384,
         max_num_seqs=256,
-        max_model_len=cfg.raft_params.max_length,
+        max_model_len=cfg.restem_params.max_length,
     )
     completions = get_generated_text(responses)
     return completions
@@ -76,7 +75,7 @@ def score_completions(completions: List[List[str]], ground_truths: List[str]) ->
     return scored_completions
 
 
-def train_raft_model(
+def train_restem_model(
     cfg: Config,
     model_path_episode: str,
     stage3_data: Dataset,
@@ -87,29 +86,29 @@ def train_raft_model(
     config = SFTConfig(
         model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
         output_dir=f"{output_dir}/intermediate_checkpoints",
-        overwrite_output_dir=cfg.raft_params.overwrite_output_dir,
+        overwrite_output_dir=cfg.restem_params.overwrite_output_dir,
         completion_only_loss=True,
         # Training parameters
-        bf16=cfg.raft_params.use_bf16,
+        bf16=cfg.restem_params.use_bf16,
         eval_strategy="steps" if eval_data else "no",
-        eval_steps=cfg.raft_params.save_steps if eval_data else None,
-        gradient_accumulation_steps=cfg.raft_params.gradient_accumulation_steps,
+        eval_steps=cfg.restem_params.save_steps if eval_data else None,
+        gradient_accumulation_steps=cfg.restem_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        learning_rate=cfg.raft_params.learning_rate,
-        lr_scheduler_type=cfg.raft_params.lr_scheduler_type,
-        lr_scheduler_kwargs=cfg.raft_params.lr_scheduler_kwargs,
-        max_length=cfg.raft_params.max_length,
-        num_train_epochs=cfg.raft_params.num_epochs,
-        per_device_train_batch_size=cfg.raft_params.batch_size,
-        per_device_eval_batch_size=cfg.raft_params.batch_size,
-        seed=cfg.raft_params.seed,
-        warmup_ratio=cfg.raft_params.warmup_ratio,
-        weight_decay=cfg.raft_params.weight_decay,
+        learning_rate=cfg.restem_params.learning_rate,
+        lr_scheduler_type=cfg.restem_params.lr_scheduler_type,
+        lr_scheduler_kwargs=cfg.restem_params.lr_scheduler_kwargs,
+        max_length=cfg.restem_params.max_length,
+        num_train_epochs=cfg.restem_params.num_epochs,
+        per_device_train_batch_size=cfg.restem_params.batch_size,
+        per_device_eval_batch_size=cfg.restem_params.batch_size,
+        seed=cfg.restem_params.seed,
+        warmup_ratio=cfg.restem_params.warmup_ratio,
+        weight_decay=cfg.restem_params.weight_decay,
         # Logging parameters
         log_level=cfg.wandb_params.log_level,
         log_on_each_node=True,
-        logging_steps=cfg.raft_params.logging_steps,
+        logging_steps=cfg.restem_params.logging_steps,
         load_best_model_at_end=True if eval_data else False,
         report_to="wandb",
         run_name=wandb_run_name,
@@ -118,10 +117,10 @@ def train_raft_model(
         hub_private_repo=True,
         hub_strategy="end",
         save_strategy="steps",
-        save_steps=cfg.raft_params.save_steps,
-        save_total_limit=cfg.raft_params.save_total_limit,
+        save_steps=cfg.restem_params.save_steps,
+        save_total_limit=cfg.restem_params.save_total_limit,
         # Data parameters
-        data_seed=cfg.raft_params.seed,
+        data_seed=cfg.restem_params.seed,
         dataloader_drop_last=True,
         dataloader_num_workers=NUM_WORKERS,
         dataset_num_proc=NUM_WORKERS,
@@ -153,7 +152,7 @@ def construct_data_for_training(cfg, stage1_prompts, episode_completions, scored
         completions_list = [c for c, s in zip(completions_list, scores) if s]
         if not completions_list:
             continue
-        completions_list = random.sample(completions_list, min(len(completions_list), cfg.raft_params.max_samples_to_keep))
+        completions_list = random.sample(completions_list, min(len(completions_list), cfg.restem_params.max_samples_to_keep))
         for completion in completions_list:
             if prompt[-1]["role"] == "assistant":
                 completion = prompt[-1]["content"] + completion
@@ -173,29 +172,29 @@ def does_file_exist(file: Path) -> bool:
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     ### Sanity checks
-    assert cfg.raft_stage in [1, 2], "Invalid raft_stage. Must be 1 for generating and scoring completions, or 2 for training."
-    assert cfg.raft_episode >= 0, "Invalid raft_episode. Must be a non-negative integer."
-    model_short_name = cfg.raft_params.model_path.split("/")[-1]
-    wandb_run_name = f"RAFT_{model_short_name}_ep{cfg.raft_episode}"
-    model_path_episode = cfg.raft_params.model_path if cfg.raft_episode == 0 else f"wetsoledrysoul/RAFT_{model_short_name}_ep{cfg.raft_episode - 1}"
-    output_dir = Path(f"{os.getenv('WORK')}/raft_output/{wandb_run_name}")
-    if cfg.raft_stage == 2:
+    assert cfg.restem_stage in [1, 2], "Invalid restem_stage. Must be 1 for generating and scoring completions, or 2 for training."
+    assert cfg.restem_episode >= 0, "Invalid restem_episode. Must be a non-negative integer."
+    model_short_name = cfg.restem_params.model_path.split("/")[-1]
+    wandb_run_name = f"restem_{model_short_name}_ep{cfg.restem_episode}"
+    model_path_episode = cfg.restem_params.model_path if cfg.restem_episode == 0 else f"wetsoledrysoul/restem_{model_short_name}_ep{cfg.restem_episode - 1}"
+    output_dir = Path(f"{os.getenv('WORK')}/restem_output/{wandb_run_name}")
+    if cfg.restem_stage == 2:
         if not all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):
-            raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.raft_episode} before proceeding.")
+            raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.restem_episode} before proceeding.")
     ### End sanity checks
     ### Check if stage has been completed previously
-    if cfg.raft_stage == 1:
+    if cfg.restem_stage == 1:
         if all([does_file_exist(output_dir / x) for x in ["completions.pkl", "scored_completions.pkl"]]):
             log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
             return None
-    elif cfg.raft_stage == 2:
+    elif cfg.restem_stage == 2:
         if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
             log.info(f"Stage 2 files are already present in {output_dir}. Skipping.")
             return None
     ### End Checks
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.raft_params.model_path)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.restem_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
     if cfg.data.val:
         eval_data = load_dataset(cfg.data.val)
@@ -212,8 +211,8 @@ def main(cfg: Config):
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     stage1_prompts = list(train_data["prompt"])
-    log.info(f"Starting RAFT episode {cfg.raft_episode}")
-    if cfg.raft_stage == 1:
+    log.info(f"Starting restem episode {cfg.restem_episode}")
+    if cfg.restem_stage == 1:
         log.info(f"Processing {len(stage1_prompts)} prompts for stage one")
         episode_completions = generate_completions(cfg, stage1_prompts, model_path_episode)
         log.info(f"Scoring {len(episode_completions)} prompts for stage two")
@@ -222,7 +221,7 @@ def main(cfg: Config):
             pickle.dump(episode_completions, f)
         with open(output_dir / "scored_completions.pkl", "wb") as f:
             pickle.dump(scored_completions, f)
-        log.info(f"Completed Stage 1 of RAFT episode {cfg.raft_episode}")
+        log.info(f"Completed Stage 1 of restem episode {cfg.restem_episode}")
 
     else:
         with open(output_dir / "completions.pkl", "rb") as f:
@@ -231,20 +230,20 @@ def main(cfg: Config):
             scored_completions = pickle.load(f)
         stage3_data = construct_data_for_training(cfg, stage1_prompts, episode_completions, scored_completions, tokenizer)
         log.info(f"Training {model_path_episode} on {len(stage3_data)} examples in Stage 2")
-        train_raft_model(cfg, model_path_episode, stage3_data, wandb_run_name, output_dir, eval_data)
-        log.info(f"Completed Stage 2 of RAFT episode {cfg.raft_episode}")
+        train_restem_model(cfg, model_path_episode, stage3_data, wandb_run_name, output_dir, eval_data)
+        log.info(f"Completed Stage 2 of restem episode {cfg.restem_episode}")
 
 
 if __name__ == "__main__":
     """
     Usage guide:
-    Since only one vllm object can be created at a time (without running into vllm errors), the script is designed to be run in two `sub_stages` per RAFT episode.
+    Since only one vllm object can be created at a time (without running into vllm errors), the script is designed to be run in two `sub_stages` per restem episode.
     For each episode, run the following commands sequentially:
     
-    raft_training.py +raft_stage=1 raft_episode=0
-    raft_training.py +raft_stage=2 raft_episode=0
-    raft_training.py +raft_stage=1 raft_episode=1
-    raft_training.py +raft_stage=2 raft_episode=1
+    restem_training.py +restem_stage=1 restem_episode=0
+    restem_training.py +restem_stage=2 restem_episode=0
+    restem_training.py +restem_stage=1 restem_episode=1
+    restem_training.py +restem_stage=2 restem_episode=1
     
     and so on.
     """

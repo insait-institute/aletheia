@@ -13,7 +13,7 @@ from typing import List
 
 from datasets import load_dataset
 
-from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, RAFT_PROMPT_NOTHINK, RAFT_PROMPT_THINK, STAR_PROMPT
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from utils import run_inference
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
@@ -64,14 +64,7 @@ def _create_prompts(example, model_name):
     PROMPT = LIST_REWARD_PROMPT
     valid_options = "A, B"
 
-    if "star" in model_name:
-        PROMPT = STAR_PROMPT
-    elif "raft" in model_name:
-        if "deepseek" in model_name:
-            PROMPT = RAFT_PROMPT_THINK
-        else:
-            PROMPT = RAFT_PROMPT_NOTHINK
-    elif "judge_lrm" in model_name:
+    if "judge_lrm" in model_name:
         PROMPT = JUDGELRM_PROMPT
         valid_options = None
     elif "ds_grm" in model_name:

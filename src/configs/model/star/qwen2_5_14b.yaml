@@ -1,7 +1,0 @@
-# @package _global_
-
-star_params:
-    model_path: Qwen/Qwen2.5-14B-Instruct
-    batch_size: 4
-    gradient_accumulation_steps: 4
-    thinking_model: False

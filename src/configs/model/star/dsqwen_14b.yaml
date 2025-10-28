@@ -1,0 +1,8 @@
+# @package _global_
+
+restem_params:
+    model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+    batch_size: 2
+    gradient_accumulation_steps: 8
+    thinking_model: True
+    gen_dp_size: 2

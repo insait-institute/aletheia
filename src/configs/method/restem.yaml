@@ -4,7 +4,7 @@ data:
     train: CodeShield/CerebRM-Dataset
     val: null
 
-raft_params:
+restem_params:
     learning_rate: 5e-5
     logging_steps: 1
     lr_scheduler_kwargs: 
@@ -28,5 +28,5 @@ raft_params:
 wandb_params:
     log_level: info
 
-raft_stage: null
-raft_episode: null
+restem_stage: null
+restem_episode: null

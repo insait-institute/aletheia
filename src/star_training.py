@@ -12,7 +12,7 @@ from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 import wandb
-from cerebrm_prompts import STAR_PROMPT
+from cerebrm_prompts import LIST_REWARD_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
 from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
@@ -39,7 +39,7 @@ def _create_prompts(example, cfg: Config, hinted=False):
     example["prompt"] = [
         {
             "role": "user",
-            "content": STAR_PROMPT.format(
+            "content": LIST_REWARD_PROMPT.format(
                 question=example["query"],
                 candidates=candidate_str,
                 valid_options=", ".join(potential_answers),
