@@ -107,17 +107,16 @@ def interpret_scores(scores: List[int]) -> str:
 
 def main(args):
     if args.data == "rq1":
-        data = load_dataset("wetsoledrysoul/RQ1-Set")
-        data = data["filtered"]
+        data = load_dataset("wetsoledrysoul/RQ1-Set", split='test')
     elif args.data == "rq2":
-        data = load_dataset("wetsoledrysoul/RQ2-Set")
-        data = data["full"]
+        data = load_dataset("wetsoledrysoul/RQ2-Set", split='full')
     elif args.data == "rq3":
-        raise NotImplementedError("RQ3 dataset not yet available")
+        data = load_dataset("wetsoledrysoul/RQ3-Set", split='test')
     elif args.data == "rq4":
-        data = load_dataset("wetsoledrysoul/RQ4-Set")
+        data = load_dataset("wetsoledrysoul/RQ4-Set", split='test')
     else:
-        data = load_dataset("wetsoledrysoul/RQ4-Set", split="original")
+        data = load_dataset("wetsoledrysoul/Heldout-Set", split="test")
+        
     if args.reward_type is None:
         if "list_dist" in args.eval_llm:
             args.reward_type = "list_dist"
@@ -135,8 +134,9 @@ def main(args):
         temperature=0.6,
         max_tokens=args.max_tokens,
         max_model_len=args.max_tokens + 4096,
-        tp_size=1,
+        dp_size=1,
         top_p=0.95,
+        max_num_batched_tokens=args.max_tokens + 4096,
         n=args.K,
         gpu_memory_utilization=0.95,
     )
@@ -174,7 +174,7 @@ def main(args):
     random_id = str(uuid.uuid4())[:8]
     pkl_filename = Path(__file__).parent / f"outputs/completions_{random_id}.pkl"
     csv_filename = Path(__file__).parent / "outputs/eval_results.csv"
-
+    pkl_filename.parent.mkdir(parents=True, exist_ok=True)
     # Save completions to pickle file
     with open(pkl_filename, "wb") as f:
         pickle.dump(completions, f)

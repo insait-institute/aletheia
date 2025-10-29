@@ -72,8 +72,8 @@ def maybe_resume_training(base_dir: str) -> bool:
 def run_inference(
     prompts: List[Prompt],
     model: str,
-    dp_size: int = torch.cuda.device_count(),
-    tp_size: int = 1,
+    dp_size: int = None,
+    tp_size: int = None,
     node_size: int = 1,
     node_rank: int = 0,
     master_addr: str = "",
@@ -94,6 +94,17 @@ def run_inference(
     max_num_batched_tokens: int = 2048,
     **kwargs,
 ) -> List[RequestOutput]:
+    
+    if not dp_size and not tp_size:
+        dp_size = 1
+        tp_size = torch.cuda.device_count()
+    elif not dp_size:
+        dp_size = torch.cuda.device_count() // tp_size
+    elif not tp_size:
+        tp_size = torch.cuda.device_count() // dp_size
+    else:
+        assert dp_size * tp_size == torch.cuda.device_count(), "dp_size * tp_size must equal the number of available GPUs"
+        
     """
     Run data-parallel inference with configurable distributed and optimization settings.
 
