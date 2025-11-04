@@ -8,6 +8,7 @@ import os
 import pickle
 from pathlib import Path
 
+import torch
 from datasets import load_dataset
 
 from cerebrm_prompts import LIST_REWARD_PROMPT
@@ -43,13 +44,17 @@ def main(args):
     prompts = list(data["prompt"])
     # Generate completions using Deepseek-R1-Distill-Qwen
     model = f"deepseek-ai/Deepseek-R1-Distill-Qwen-{args.size}"
+    if args.size == "R1":
+        model = Path(os.getenv("WORK")) / "DS-R1"
     completions = run_inference(
         prompts,
         model,
         temperature=0.6,
+        quantization="fp8" if args.size == "R1" else None,
         n=args.K,
         gpu_memory_utilization=0.95,
-        tp_size=1,
+        tp_size=torch.cuda.device_count(),
+        dp_size=1,
         max_tokens=16384,
         max_model_len=20480,
     )
@@ -69,7 +74,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--size", type=str, choices=["1.5B", "7B", "14B"], required=True, help="Model size to use for data generation")
+    (parser.add_argument("--size", type=str, choices=["1.5B", "7B", "14B", "32B", "R1"], required=True, help="Model size to use for data generation"),)
     parser.add_argument("--wrong-indices-file", type=str, default=None, help="Path to a file containing indices of wrong answers.  If not given, inference is done on all examples.")
     parser.add_argument("--K", type=int, default=4, help="Number of completions to generate per prompt.")
     args = parser.parse_args()
