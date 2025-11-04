@@ -67,7 +67,7 @@ def _create_prompts(example, model_name):
     if "judge_lrm" in model_name:
         PROMPT = JUDGELRM_PROMPT
         valid_options = None
-    elif "ds_grm" in model_name:
+    elif "grm" in model_name:
         PROMPT = DS_GRM_PROMPT
         valid_options = None
     if valid_options:
@@ -107,25 +107,16 @@ def interpret_scores(scores: List[int]) -> str:
 
 def main(args):
     if args.data == "rq1":
-        data = load_dataset("wetsoledrysoul/RQ1-Set", split='test')
+        data = load_dataset("wetsoledrysoul/RQ1-Set", split="test")
     elif args.data == "rq2":
-        data = load_dataset("wetsoledrysoul/RQ2-Set", split='full')
+        data = load_dataset("wetsoledrysoul/RQ2-Set", split="full")
     elif args.data == "rq3":
-        data = load_dataset("wetsoledrysoul/RQ3-Set", split='test')
+        data = load_dataset("wetsoledrysoul/RQ3-Set", split="test")
     elif args.data == "rq4":
-        data = load_dataset("wetsoledrysoul/RQ4-Set", split='test')
+        data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
     else:
         data = load_dataset("wetsoledrysoul/Heldout-Set", split="test")
-        
-    if args.reward_type is None:
-        if "list_dist" in args.eval_llm:
-            args.reward_type = "list_dist"
-        elif "list_em" in args.eval_llm:
-            args.reward_type = "list_em"
-        elif "judge_lrm" in args.eval_llm:
-            args.reward_type = "judge_lrm"
-        elif "ds_grm" in args.eval_llm:
-            args.reward_type = "ds_grm"
+
     data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
     completions = run_inference(
@@ -142,7 +133,7 @@ def main(args):
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
 
-    if args.reward_type in ["judge_lrm", "ds_grm"]:
+    if "judge_lrm" in args.eval_llm or "grm" in args.eval_llm:
         scores = [[extract_boxed_contents_score10(y) for y in x] for x in completions]
         model_answers = [[interpret_scores(y) for y in x] for x in scores]
     else:
@@ -184,7 +175,7 @@ def main(args):
         writer.writerow(
             {
                 "eval_llm": args.eval_llm,
-                "reward_type": args.reward_type if args.reward_type else "-",
+                "reward_type": "-",
                 "K": args.K,
                 "data": args.data,
                 "max_tokens": args.max_tokens,
