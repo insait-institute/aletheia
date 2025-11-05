@@ -22,7 +22,6 @@ class GRPOParams:
     num_epochs: int = None
     overwrite_output_dir: bool = None
     save_steps: float = None
-    save_total_limit: int = None
     seed: int = None
     use_bf16: bool = None
     warmup_ratio: float = None
@@ -64,9 +63,7 @@ class RESTEMParams:
     model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
     save_steps: float = None
-    save_total_limit: int = None
     seed: int = None
     tp_size: int = None
     use_bf16: bool = None
@@ -93,9 +90,7 @@ class STaRParams:
     model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
     save_steps: float = None
-    save_total_limit: int = None
     seed: int = None
     tp_size: int = None
     use_bf16: bool = None
@@ -112,7 +107,6 @@ class DPOParams:
     max_length: int = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
     save_steps: int | float = None
     seed: int = None
     use_bf16: bool = None
@@ -139,9 +133,7 @@ class GenRMParams:
     model_path: str = None
     num_epochs: int = None
     overwrite_output_dir: bool = None
-    resume_training_if_possible: bool = None
     save_steps: float = None
-    save_total_limit: int = None
     seed: int = None
     tp_size: int = None
     use_bf16: bool = None

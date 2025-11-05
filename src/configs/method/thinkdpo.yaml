@@ -12,7 +12,6 @@ dpo_params:
     max_length: 20480
     num_epochs: 1
     overwrite_output_dir: True
-    resume_training_if_possible: True
     save_steps: 0.25
     seed: 42
     use_bf16: True

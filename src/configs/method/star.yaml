@@ -13,7 +13,6 @@ star_params:
     max_length: 12288
     num_epochs: 1
     overwrite_output_dir: True
-    resume_training_if_possible: True
     save_steps: 0.25
     seed: 42
     tp_size: 1
