@@ -1,0 +1,26 @@
+# @package _global_
+
+data:
+    train: CodeShield/CerebRM-Dataset-DPO
+    val: null
+
+dpo_params:
+    learning_rate: 5e-7
+    beta: 0.1
+    logging_steps: 1
+    lr_scheduler_type: constant_with_warmup
+    max_length: 20480
+    num_epochs: 1
+    overwrite_output_dir: True
+    resume_training_if_possible: True
+    save_steps: 0.25
+    seed: 42
+    use_bf16: True
+    warmup_ratio: 0.05
+    weight_decay: 1e-2
+    sync_ref_model: True
+    ref_model_mixup_alpha: 1.0
+    ref_model_sync_steps: 100
+
+wandb_params:
+    log_level: info

@@ -104,6 +104,29 @@ class STaRParams:
 
 
 @dataclass
+class DPOParams:
+    learning_rate: float = None
+    beta: float = None
+    logging_steps: int = None
+    lr_scheduler_type: str = None
+    max_length: int = None
+    num_epochs: int = None
+    overwrite_output_dir: bool = None
+    resume_training_if_possible: bool = None
+    save_steps: int | float = None
+    seed: int = None
+    use_bf16: bool = None
+    warmup_ratio: float = None
+    weight_decay: float = None
+    batch_size: int = None
+    model_path: str = None
+    gradient_accumulation_steps: int = None
+    sync_ref_model: bool = None
+    ref_model_mixup_alpha: float = None
+    ref_model_sync_steps: int = None
+
+
+@dataclass
 class GenRMParams:
     batch_size: int = None
     deepspeed_config_path: str = None
@@ -139,6 +162,7 @@ class Config:
     restem_params: Optional[RESTEMParams] = field(default_factory=RESTEMParams)
     genrm_params: Optional[GenRMParams] = field(default_factory=GenRMParams)
     star_params: Optional[STaRParams] = field(default_factory=STaRParams)
+    dpo_params: Optional[DPOParams] = field(default_factory=DPOParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
     grpo_reward_type: Optional[str] = None
     grpo_use_lora: Optional[bool] = None
