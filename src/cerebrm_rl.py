@@ -191,9 +191,7 @@ def train(cfg: Config):
     )
     # Start training with explicit checkpoint resumption
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
-    log.info("Training completed.")
-    trainer.save_model(output_dir)
-    log.info(f"Model trained and saved to {output_dir}")
+    trainer.push_to_hub()
 
 
 if __name__ == "__main__":
