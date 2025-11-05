@@ -81,7 +81,7 @@ def train_model(
         report_to="wandb",
         run_name=wandb_run_name,
         # Saving parameters
-        hub_model_id=f"CodeShield/{wandb_run_name}",
+        hub_model_id=f"wetsoledrysoul/{wandb_run_name}",
         hub_private_repo=True,
         hub_strategy="end",
         save_strategy="steps",

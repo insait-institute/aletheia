@@ -26,7 +26,7 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 log.addHandler(ch)
 os.environ["WANDB_ENTITY"] = "CodeShield"
-os.environ["WANDB_PROJECT"] = "CerebRM-restem"
+os.environ["WANDB_PROJECT"] = "CerebRM-RESTEM"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
@@ -50,7 +50,7 @@ def _create_prompts(example, cfg: Config):
 
 def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[List[str]]:
     # Sampling K responses from the current model
-    dp_size = cfg.restem_params.gen_dp_size if cfg.restem_params.gen_dp_size else torch.cuda.device_count()
+    dp_size = cfg.restem_params.gen_dp_size if cfg.restem_params.gen_dp_size else 1
     tp_size = torch.cuda.device_count() // dp_size
     responses = run_inference(
         prompts,
@@ -60,8 +60,8 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
         n=cfg.restem_params.num_generations,
         dp_size=dp_size,
         tp_size=tp_size,
-        max_num_batched_tokens=16384,
-        max_num_seqs=256,
+        max_num_batched_tokens=400_000,
+        max_num_seqs=4096,
         max_model_len=cfg.restem_params.max_length,
     )
     completions = get_generated_text(responses)
@@ -97,7 +97,6 @@ def train_restem_model(
         gradient_checkpointing_kwargs={"use_reentrant": False},
         learning_rate=cfg.restem_params.learning_rate,
         lr_scheduler_type=cfg.restem_params.lr_scheduler_type,
-        lr_scheduler_kwargs=cfg.restem_params.lr_scheduler_kwargs,
         max_length=cfg.restem_params.max_length,
         num_train_epochs=cfg.restem_params.num_epochs,
         per_device_train_batch_size=cfg.restem_params.batch_size,
@@ -118,7 +117,6 @@ def train_restem_model(
         hub_strategy="end",
         save_strategy="steps",
         save_steps=cfg.restem_params.save_steps,
-        save_total_limit=cfg.restem_params.save_total_limit,
         # Data parameters
         data_seed=cfg.restem_params.seed,
         dataloader_drop_last=True,
