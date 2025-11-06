@@ -17,7 +17,7 @@ dpo_params:
     use_bf16: True
     warmup_ratio: 0.05
     weight_decay: 1e-2
-    sync_ref_model: True
+    sync_ref_model: False
     ref_model_mixup_alpha: 1.0
     ref_model_sync_steps: 100
     pad_token_id: 151647

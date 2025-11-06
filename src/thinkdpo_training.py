@@ -35,6 +35,15 @@ def conv_to_dpo_format(example):
     return example
 
 
+def count_total_tokens(example, tokenizer):
+    full_seq_a = tokenizer.apply_chat_template(example["prompt"] + example["chosen"], tokenize=False)
+    full_seq_b = tokenizer.apply_chat_template(example["rejected"], tokenize=False)
+    tokenized_a = tokenizer(full_seq_a)["input_ids"]
+    tokenized_b = tokenizer(full_seq_b)["input_ids"]
+    example["total_tokens"] = max(len(tokenized_a), len(tokenized_b))
+    return example
+
+
 def train_model(
     cfg: Config,
     model_name: str,
@@ -43,7 +52,8 @@ def train_model(
     output_dir: str,
 ) -> None:
     config = DPOConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn", "device_map": "auto", "torch_dtype": "bfloat16"},
+        # ref_model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.dpo_params.overwrite_output_dir,
         # DPO Parameters
@@ -88,13 +98,18 @@ def train_model(
         dataset_num_proc=NUM_WORKERS,
         remove_unused_columns=False,
         use_liger_loss=True,
+        precompute_ref_log_probs=True,
+        precompute_ref_batch_size=cfg.dpo_params.precompute_ref_batch_size,
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if cfg.dpo_params.pad_token_id:
         tokenizer.pad_token_id = cfg.dpo_params.pad_token_id
         tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.dpo_params.pad_token_id)
 
-    trainer = DPOTrainer(model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
+    data = data.map(count_total_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting total tokens")
+    data = data.sort("total_tokens", reverse=True).select(range(500))
+
+    trainer = DPOTrainer(model=model_name, ref_model=None, args=config, train_dataset=data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
