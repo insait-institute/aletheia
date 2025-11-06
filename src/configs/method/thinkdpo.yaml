@@ -1,7 +1,7 @@
 # @package _global_
 
 data:
-    train: CodeShield/CerebRM-Dataset-DPO
+    train: wetsoledrysoul/CerebRM-Dataset-DPO
     val: null
 
 dpo_params:
@@ -20,6 +20,7 @@ dpo_params:
     sync_ref_model: True
     ref_model_mixup_alpha: 1.0
     ref_model_sync_steps: 100
+    pad_token_id: 151647
 
 wandb_params:
     log_level: info

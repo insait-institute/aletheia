@@ -118,6 +118,7 @@ class DPOParams:
     sync_ref_model: bool = None
     ref_model_mixup_alpha: float = None
     ref_model_sync_steps: int = None
+    pad_token_id: int = None
 
 
 @dataclass

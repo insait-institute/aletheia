@@ -5,6 +5,7 @@ from pathlib import Path
 import hydra
 from datasets import Dataset, load_dataset
 from omegaconf import OmegaConf
+from transformers import AutoTokenizer
 from trl import DPOConfig, DPOTrainer
 
 import wandb
@@ -22,6 +23,16 @@ os.environ["WANDB_ENTITY"] = "CodeShield"
 os.environ["WANDB_PROJECT"] = "CerebRM-DPO"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+
+
+def conv_to_dpo_format(example):
+    if not isinstance(example["prompt"], list):
+        example["prompt"] = [{"role": "user", "content": example["prompt"]}]
+    if not isinstance(example["chosen"], list):
+        example["chosen"] = [{"role": "assistant", "content": "<think>\n" + example["chosen"]}]
+    if not isinstance(example["rejected"], list):
+        example["rejected"] = [{"role": "assistant", "content": "<think>\n" + example["rejected"]}]
+    return example
 
 
 def train_model(
@@ -50,6 +61,8 @@ def train_model(
         learning_rate=cfg.dpo_params.learning_rate,
         lr_scheduler_type=cfg.dpo_params.lr_scheduler_type,
         max_length=cfg.dpo_params.max_length,
+        max_prompt_length=None,
+        max_completion_length=None,
         num_train_epochs=cfg.dpo_params.num_epochs,
         per_device_train_batch_size=cfg.dpo_params.batch_size,
         per_device_eval_batch_size=None,
@@ -76,7 +89,12 @@ def train_model(
         remove_unused_columns=False,
         use_liger_loss=True,
     )
-    trainer = DPOTrainer(model=model_name, args=config, train_dataset=data)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if cfg.dpo_params.pad_token_id:
+        tokenizer.pad_token_id = cfg.dpo_params.pad_token_id
+        tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.dpo_params.pad_token_id)
+
+    trainer = DPOTrainer(model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
@@ -98,7 +116,7 @@ def main(cfg: Config):
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     train_data = load_dataset(cfg.data.train)["train"]
-
+    train_data = train_data.map(conv_to_dpo_format, num_proc=NUM_WORKERS, desc="Converting to DPO format")
     log.info(f"Training {cfg.dpo_params.model_path} on {len(train_data)} examples")
     train_model(cfg, cfg.dpo_params.model_path, train_data, wandb_run_name, output_dir)
     log.info(f"Completed training {cfg.dpo_params.model_path} on {len(train_data)} examples")
