@@ -66,7 +66,6 @@ def train_model(
         gradient_checkpointing_kwargs={"use_reentrant": False},
         learning_rate=cfg.genrm_params.learning_rate,
         lr_scheduler_type=cfg.genrm_params.lr_scheduler_type,
-        lr_scheduler_kwargs=cfg.genrm_params.lr_scheduler_kwargs,
         max_length=cfg.genrm_params.max_length,
         num_train_epochs=cfg.genrm_params.num_epochs,
         per_device_train_batch_size=cfg.genrm_params.batch_size,
