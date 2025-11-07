@@ -96,7 +96,7 @@ def train_model(
         use_liger_kernel=True,
     )
     trainer = SFTTrainer(model=model_name, args=config, train_dataset=data)
-    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model.path)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
     if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
         tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
     if cfg.genrm_params.pad_token_id is not None:
@@ -128,7 +128,7 @@ def does_file_exist(file: Path) -> bool:
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
-    model_short_name = cfg.genrm_params.model.path.split("/")[-1]
+    model_short_name = cfg.genrm_params.model_path.split("/")[-1]
     wandb_run_name = f"genrm_cot_{model_short_name}"
     output_dir = Path(f"{os.getenv('WORK')}/genrm_output/{wandb_run_name}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -142,9 +142,9 @@ def main(cfg: Config):
 
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
     train_data = train_data.rename_columns({"chosen": "completion"}).remove_columns(["rejected"])
-    log.info(f"Training {cfg.genrm_params.model.path} on {len(train_data)} examples")
-    train_model(cfg, cfg.genrm_params.model.path, train_data, wandb_run_name, output_dir)
-    log.info(f"Completed training {cfg.genrm_params.model.path} on {len(train_data)} examples")
+    log.info(f"Training {cfg.genrm_params.model_path} on {len(train_data)} examples")
+    train_model(cfg, cfg.genrm_params.model_path, train_data, wandb_run_name, output_dir)
+    log.info(f"Completed training {cfg.genrm_params.model_path} on {len(train_data)} examples")
 
 
 if __name__ == "__main__":
