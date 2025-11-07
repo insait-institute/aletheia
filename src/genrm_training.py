@@ -4,12 +4,12 @@ from pathlib import Path
 
 import hydra
 from datasets import Dataset, load_dataset
+from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 import wandb
-from cerebrm_prompts import GENRM_PROMPT
 from configs.schema import Config
 from utils import maybe_resume_training
 
@@ -41,8 +41,19 @@ def train_model(
     wandb_run_name: str,
     output_dir: str,
 ) -> None:
+    kernel = None
+    if has_kernel("kernels-community/flash-attn3"):
+        kernel = "kernels-community/flash-attn3"
+        log.info("Flash Attention 3 kernel found. Using Flash Attention 3 for training.")
+    elif has_kernel("kernels-community/flash-attn2"):
+        kernel = "kernels-community/flash-attn2"
+        log.info("Flash Attention 2 kernel found. Using Flash Attention 2 for training.")
+    elif has_kernel("kernels-community/flash-attn"):
+        kernel = "kernels-community/flash-attn"
+        log.info("Flash Attention kernel found. Using Flash Attention for training.")
+
     config = SFTConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": kernel},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.genrm_params.overwrite_output_dir,
         completion_only_loss=True,
@@ -85,6 +96,16 @@ def train_model(
         use_liger_kernel=True,
     )
     trainer = SFTTrainer(model=model_name, args=config, train_dataset=data)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
+    if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
+        tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
+    if cfg.genrm_params.pad_token_id is not None:
+        tokenizer.pad_token_id = cfg.genrm_params.pad_token_id
+        tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.genrm_params.pad_token_id)
+
+    data = data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="counting tokens to sort")
+    data = data.sort("num_tokens", reverse=True)
+
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
@@ -100,6 +121,7 @@ def _count_tokens(example, tokenizer):
     example["num_tokens"] = len(tokenized_prompt)
     return example
 
+
 def does_file_exist(file: Path) -> bool:
     return file.exists()
 
@@ -112,17 +134,14 @@ def main(cfg: Config):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
-        log.info(f"GenRM training files are already present in {output_dir}. Skipping.")
+        log.info(f"GenRM CoT training files are already present in {output_dir}. Skipping.")
         return None
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
 
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
-    train_data = train_data.rename_columns({"chosen":"completion"}).remove_columns(['rejected'])
-    train_data = train_data.map(_count_tokens, num_proc=NUM_WORKERS, desc="counting tokens to sort")    
-    train_data = train_data.sort("num_tokens", reverse=True)
+    train_data = train_data.rename_columns({"chosen": "completion"}).remove_columns(["rejected"])
     log.info(f"Training {cfg.genrm_params.model_path} on {len(train_data)} examples")
     train_model(cfg, cfg.genrm_params.model_path, train_data, wandb_run_name, output_dir)
     log.info(f"Completed training {cfg.genrm_params.model_path} on {len(train_data)} examples")
