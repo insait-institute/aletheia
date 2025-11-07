@@ -32,7 +32,7 @@
 			{%- set ns.is_tool = false -%}
 		{%- else -%}
 			{%- set content = message["content"] -%}
-			{{- "<｜Assistant｜>" + content + "<｜end▁of▁sentence｜>" -}}
+			{{- "<｜Assistant｜>" + content -}}
 		{%- endif -%}
 	{%- endif -%}
 	{%- if message["role"] == "tool" -%}
