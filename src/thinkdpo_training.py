@@ -36,15 +36,6 @@ def conv_to_dpo_format(example):
     return example
 
 
-def count_total_tokens(example, tokenizer):
-    full_seq_a = tokenizer.apply_chat_template(example["prompt"] + example["chosen"], tokenize=False)
-    full_seq_b = tokenizer.apply_chat_template(example["rejected"], tokenize=False)
-    tokenized_a = tokenizer(full_seq_a)["input_ids"]
-    tokenized_b = tokenizer(full_seq_b)["input_ids"]
-    example["total_tokens"] = max(len(tokenized_a), len(tokenized_b))
-    return example
-
-
 def train_model(
     cfg: Config,
     model_name: str,
@@ -117,8 +108,6 @@ def train_model(
         tokenizer.pad_token_id = cfg.dpo_params.pad_token_id
         tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.dpo_params.pad_token_id)
 
-    data = data.map(count_total_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting total tokens")
-    data = data.sort("total_tokens", reverse=True).select(range(500))
     trainer = DPOTrainer(model=model_name, ref_model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
@@ -142,6 +131,7 @@ def main(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     train_data = load_dataset(cfg.data.train)["train"]
     train_data = train_data.map(conv_to_dpo_format, num_proc=NUM_WORKERS, desc="Converting to DPO format")
+    train_data = train_data.shuffle(seed=cfg.dpo_params.seed)
     log.info(f"Training {cfg.dpo_params.model_path} on {len(train_data)} examples")
     train_model(cfg, cfg.dpo_params.model_path, train_data, wandb_run_name, output_dir)
     log.info(f"Completed training {cfg.dpo_params.model_path} on {len(train_data)} examples")
