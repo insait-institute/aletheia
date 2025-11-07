@@ -66,7 +66,6 @@ class RESTEMParams:
     overwrite_output_dir: bool = None
     save_steps: float = None
     seed: int = None
-    tp_size: int = None
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
@@ -93,7 +92,6 @@ class STaRParams:
     overwrite_output_dir: bool = None
     save_steps: float = None
     seed: int = None
-    tp_size: int = None
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
@@ -135,10 +133,10 @@ class GenRMParams:
     overwrite_output_dir: bool = None
     save_steps: float = None
     seed: int = None
-    tp_size: int = None
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
+    pad_token_id: int = None
 
 
 @dataclass

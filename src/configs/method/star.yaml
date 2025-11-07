@@ -15,7 +15,6 @@ star_params:
     overwrite_output_dir: True
     save_steps: 0.25
     seed: 42
-    tp_size: 1
     use_bf16: True
     warmup_ratio: 0.05
     weight_decay: 1e-2
