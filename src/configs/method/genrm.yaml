@@ -1,16 +1,14 @@
 # @package _global_
 
 data:
-    train: CodeShield/CerebRM-Dataset
+    train: wetsoledrysoul/CerebRM-Dataset-DPO
     val: null
 
 genrm_params:
     learning_rate: 5e-5
     logging_steps: 1
-    lr_scheduler_kwargs: 
-        min_lr: 5e-6
-    lr_scheduler_type: cosine_with_min_lr
-    max_length: 12288
+    lr_scheduler_type: constant_with_warmup
+    max_length: 20480
     num_epochs: 1
     overwrite_output_dir: True
     save_steps: 0.25

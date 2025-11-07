@@ -21,26 +21,16 @@ ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 log.addHandler(ch)
 os.environ["WANDB_ENTITY"] = "CodeShield"
-os.environ["WANDB_PROJECT"] = "CerebRM-GenRM"
+os.environ["WANDB_PROJECT"] = "CerebRM-GenRM-CoT"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
 
 def _create_training_dataset(example):
-    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
-    candidate_str = "\n\n".join(candidates)
-    example["prompt"] = [
-        {
-            "role": "user",
-            "content": GENRM_PROMPT.format(
-                question=example["query"],
-                candidates=candidate_str,
-                valid_options=", ".join(potential_answers),
-            ).strip(),
-        },
-    ]
-    example["completion"] = [{"role": "assistant", "content": f"\\boxed{{{example['chosen_answer']}}}"}]
+    if not isinstance(example["prompt"], list):
+        example["prompt"] = [{"role": "user", "content": example["prompt"]}]
+    if not isinstance(example["chosen"], list):
+        example["chosen"] = [{"role": "assistant", "content": example["chosen"]}]
     return example
 
 
@@ -110,11 +100,6 @@ def _count_tokens(example, tokenizer):
     example["num_tokens"] = len(tokenized_prompt)
     return example
 
-
-def _by_tokens(example, max_tokens: int) -> bool:
-    return example["num_tokens"] <= max_tokens
-
-
 def does_file_exist(file: Path) -> bool:
     return file.exists()
 
@@ -122,7 +107,7 @@ def does_file_exist(file: Path) -> bool:
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     model_short_name = cfg.genrm_params.model_path.split("/")[-1]
-    wandb_run_name = f"genrm_{model_short_name}"
+    wandb_run_name = f"genrm_cot_{model_short_name}"
     output_dir = Path(f"{os.getenv('WORK')}/genrm_output/{wandb_run_name}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,10 +120,9 @@ def main(cfg: Config):
     train_data = load_dataset(cfg.data.train)["train"]
 
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
-
-    train_data = train_data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting tokens")
-    train_data = train_data.filter(_by_tokens, fn_kwargs={"max_tokens": cfg.genrm_params.max_length}, num_proc=NUM_WORKERS, desc="Filtering long sequences")
-
+    train_data = train_data.rename_columns({"chosen":"completion"}).remove_columns(['rejected'])
+    train_data = train_data.map(_count_tokens, num_proc=NUM_WORKERS, desc="counting tokens to sort")    
+    train_data = train_data.sort("num_tokens", reverse=True)
     log.info(f"Training {cfg.genrm_params.model_path} on {len(train_data)} examples")
     train_model(cfg, cfg.genrm_params.model_path, train_data, wandb_run_name, output_dir)
     log.info(f"Completed training {cfg.genrm_params.model_path} on {len(train_data)} examples")
