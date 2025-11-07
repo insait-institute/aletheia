@@ -2,5 +2,6 @@
 
 dpo_params:
     model_path: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-    batch_size: 16
-    gradient_accumulation_steps: 1
+    batch_size: 2
+    gradient_accumulation_steps: 8 
+    precompute_ref_batch_size: 4
