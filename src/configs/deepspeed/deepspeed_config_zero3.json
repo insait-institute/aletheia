@@ -8,15 +8,6 @@
     "checkpoint": {
         "use_node_local_storage": true
     },
-    "optimizer": {
-        "type": "AdamW",
-        "params": {
-            "lr": "auto",
-            "weight_decay": "auto",
-            "torch_adam": true,
-            "adam_w_mode": true
-        }
-    },
     "zero_optimization": {
         "stage": 3,
         "allgather_partitions": true,
@@ -25,14 +16,28 @@
         "reduce_scatter": true,
         "reduce_bucket_size": "auto",
         "contiguous_gradients": true,
+        "stage3_prefetch_bucket_size": "auto",
+        "stage3_param_persistence_threshold": "auto",
+        "stage3_max_live_parameters": 1e9,
+        "stage3_max_reuse_distance": 1e9,
+        "stage3_gather_16bit_weights_on_model_save": true,
         "offload_optimizer": {
-            "device": "cpu"
+            "device": "cpu",
+            "pin_memory": true
         }
     },
     "gradient_accumulation_steps": "auto",
     "gradient_clipping": 1,
-    "steps_per_print": 10,
+    "steps_per_print": 1,
     "train_batch_size": "auto",
     "train_micro_batch_size_per_gpu": "auto",
-    "wall_clock_breakdown": false
+    "wall_clock_breakdown": false,
+    "flops_profiler": {
+        "enabled": true,
+        "profile_step": 1,
+        "module_depth": -1,
+        "top_modules": 1,
+        "detailed": true,
+        "output_file": "flops_profile"
+    }
 }

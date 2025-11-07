@@ -4,6 +4,7 @@ from pathlib import Path
 
 import hydra
 from datasets import Dataset, load_dataset
+from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import DPOConfig, DPOTrainer
@@ -29,9 +30,9 @@ def conv_to_dpo_format(example):
     if not isinstance(example["prompt"], list):
         example["prompt"] = [{"role": "user", "content": example["prompt"]}]
     if not isinstance(example["chosen"], list):
-        example["chosen"] = [{"role": "assistant", "content": "<think>\n" + example["chosen"]}]
+        example["chosen"] = [{"role": "assistant", "content": example["chosen"]}]
     if not isinstance(example["rejected"], list):
-        example["rejected"] = [{"role": "assistant", "content": "<think>\n" + example["rejected"]}]
+        example["rejected"] = [{"role": "assistant", "content": example["rejected"]}]
     return example
 
 
@@ -51,16 +52,27 @@ def train_model(
     wandb_run_name: str,
     output_dir: str,
 ) -> None:
+    kernel = None
+    if has_kernel("kernels-community/flash-attn3"):
+        kernel = "kernels-community/flash-attn3"
+        log.info("Flash Attention 3 kernel found. Using Flash Attention 3 for training.")
+    elif has_kernel("kernels-community/flash-attn2"):
+        kernel = "kernels-community/flash-attn2"
+        log.info("Flash Attention 2 kernel found. Using Flash Attention 2 for training.")
+    elif has_kernel("kernels-community/flash-attn"):
+        kernel = "kernels-community/flash-attn"
+        log.info("Flash Attention kernel found. Using Flash Attention for training.")
+
     config = DPOConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn", "device_map": "auto", "torch_dtype": "bfloat16"},
-        # ref_model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": kernel},
+        ref_model_init_kwargs={"attn_implementation": kernel},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.dpo_params.overwrite_output_dir,
         # DPO Parameters
         beta=cfg.dpo_params.beta,
-        sync_ref_model=cfg.dpo_params.sync_ref_model,
-        ref_model_mixup_alpha=cfg.dpo_params.ref_model_mixup_alpha,
-        ref_model_sync_steps=cfg.dpo_params.ref_model_sync_steps,
+        use_liger_loss=False,
+        precompute_ref_log_probs=True,
+        precompute_ref_batch_size=cfg.dpo_params.precompute_ref_batch_size,
         # Training parameters
         bf16=cfg.dpo_params.use_bf16,
         eval_strategy="no",
@@ -97,19 +109,17 @@ def train_model(
         dataloader_num_workers=NUM_WORKERS,
         dataset_num_proc=NUM_WORKERS,
         remove_unused_columns=False,
-        use_liger_loss=True,
-        precompute_ref_log_probs=True,
-        precompute_ref_batch_size=cfg.dpo_params.precompute_ref_batch_size,
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
+        tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
     if cfg.dpo_params.pad_token_id:
         tokenizer.pad_token_id = cfg.dpo_params.pad_token_id
         tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.dpo_params.pad_token_id)
 
     data = data.map(count_total_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting total tokens")
     data = data.sort("total_tokens", reverse=True).select(range(500))
-
-    trainer = DPOTrainer(model=model_name, ref_model=None, args=config, train_dataset=data, processing_class=tokenizer)
+    trainer = DPOTrainer(model=model_name, ref_model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 

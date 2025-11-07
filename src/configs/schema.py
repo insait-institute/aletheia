@@ -6,6 +6,7 @@ from typing import Optional
 class Data:
     train: str = None
     val: str = None
+    chat_template_path: str = None
 
 
 @dataclass
@@ -115,10 +116,8 @@ class DPOParams:
     batch_size: int = None
     model_path: str = None
     gradient_accumulation_steps: int = None
-    sync_ref_model: bool = None
-    ref_model_mixup_alpha: float = None
-    ref_model_sync_steps: int = None
     pad_token_id: int = None
+    precompute_ref_batch_size: int = None
 
 
 @dataclass
