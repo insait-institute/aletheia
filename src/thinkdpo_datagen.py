@@ -40,17 +40,19 @@ def main(args):
     data = data.map(_create_prompts, num_proc=NUM_WORKERS, desc="Creating prompts")
     if args.wrong_indices_file:
         wrong_indices = Path(args.wrong_indices_file).read_text().splitlines()
+        wrong_indices = ["train_43325"]
         data = data.filter(lambda x: x["idx"] in wrong_indices, num_proc=NUM_WORKERS, desc="Filtering wrong answers")
     prompts = list(data["prompt"])
     # Generate completions using Deepseek-R1-Distill-Qwen
     model = f"deepseek-ai/Deepseek-R1-Distill-Qwen-{args.size}"
     if args.size == "R1":
-        model = Path(os.getenv("WORK")) / "DS-R1"
+        model = (Path(os.getenv("WORK")) / "DS-R1").as_posix()
     completions = run_inference(
         prompts,
         model,
         temperature=0.6,
         quantization="fp8" if args.size == "R1" else None,
+        enable_expert_parallel=args.size == "R1",
         n=args.K,
         gpu_memory_utilization=0.95,
         tp_size=torch.cuda.device_count(),
