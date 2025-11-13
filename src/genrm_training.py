@@ -40,6 +40,7 @@ def train_model(
     data: Dataset,
     wandb_run_name: str,
     output_dir: str,
+    eval_data: Dataset | None = None,
 ) -> None:
     kernel = None
     if has_kernel("kernels-community/flash-attn3"):
@@ -59,8 +60,8 @@ def train_model(
         completion_only_loss=True,
         # Training parameters
         bf16=cfg.genrm_params.use_bf16,
-        eval_strategy="no",
-        eval_steps=None,
+        eval_strategy="steps" if eval_data else "no",
+        eval_steps=cfg.genrm_params.eval_steps if eval_data else None,
         gradient_accumulation_steps=cfg.genrm_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -94,7 +95,7 @@ def train_model(
         remove_unused_columns=False,
         use_liger_kernel=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path, model_max_length=cfg.genrm_params.max_length)
     if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
         tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
     if cfg.genrm_params.pad_token_id is not None:
@@ -102,22 +103,8 @@ def train_model(
         tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.genrm_params.pad_token_id)
     trainer = SFTTrainer(model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
 
-    # data = data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="counting tokens to sort")
-    # data = data.sort("num_tokens", reverse=True)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
-
-
-def _count_tokens(example, tokenizer):
-    prompt = example["prompt"] + example["completion"]
-    prompt = tokenizer.apply_chat_template(
-        prompt,
-        tokenize=False,
-        add_generation_prompt=False,
-    )
-    tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    example["num_tokens"] = len(tokenized_prompt)
-    return example
 
 
 def does_file_exist(file: Path) -> bool:

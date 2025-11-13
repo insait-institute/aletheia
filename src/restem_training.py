@@ -1,17 +1,18 @@
 import logging
 import os
 import pickle
-import random
 from pathlib import Path
 from typing import List
-from kernels import has_kernel
+
 import hydra
+import pandas as pd
 import torch
 from datasets import Dataset, load_dataset
+from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
-import pandas as pd
+
 import wandb
 from cerebrm_prompts import LIST_REWARD_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
@@ -118,7 +119,7 @@ def train_restem_model(
         log_level=cfg.wandb_params.log_level,
         log_on_each_node=True,
         logging_steps=cfg.restem_params.logging_steps,
-        load_best_model_at_end=True if eval_data else False,
+        load_best_model_at_end=False,
         report_to="wandb",
         run_name=wandb_run_name,
         # Saving parameters
@@ -146,20 +147,6 @@ def train_restem_model(
     trainer.push_to_hub()
 
 
-def _count_tokens(prompt: Prompt, tokenizer) -> int:
-    prompt = tokenizer.apply_chat_template(
-        prompt,
-        tokenize=False,
-        add_generation_prompt=False,
-    )
-    tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    return len(tokenized_prompt)
-
-
-def _by_tokens(example, max_tokens: int) -> bool:
-    return example["num_tokens"] <= max_tokens
-
-
 def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions) -> Dataset:
     prompts, completions, indices = [], [], []
     for idx, prompt, completions_list, scores in zip(dataset_indices, stage1_prompts, episode_completions, scored_completions):
@@ -178,18 +165,19 @@ def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_co
             indices.append(idx)
     # Generate data with all possible correct samples
     full_dataset = pd.DataFrame({"prompt": prompts, "completion": completions, "indices": indices})
-    
+
     # Smartly subsample to len(dataset_indices) - First keep atleast one from each available index, and then randomly sample the rest
-    one_per_idx = full_dataset.sample(frac=1, random_state=cfg.restem_params.seed).drop_duplicates(subset='indices', keep='first').reset_index(names="full_dset_idx")
+    one_per_idx = full_dataset.sample(frac=1, random_state=cfg.restem_params.seed).drop_duplicates(subset="indices", keep="first").reset_index(names="full_dset_idx")
     log.info(f"Sampled {len(one_per_idx)} instances initially, with one entry per original training index")
     remaining_data = full_dataset[~full_dataset.index.isin(one_per_idx.full_dset_idx)]
     # sample either how much is needed to get to the original length, or how much is available
-    num_to_sample = min(len(dataset_indices) - len(one_per_idx), len(remaining_data)) 
+    num_to_sample = min(len(dataset_indices) - len(one_per_idx), len(remaining_data))
     additional_data = remaining_data.sample(n=num_to_sample, random_state=cfg.restem_params.seed).reset_index(drop=True)
     log.info(f"Sampled {len(additional_data)} additional instances randomly")
-    final_ds = pd.concat([one_per_idx.drop('full_dset_idx', axis=1), additional_data], axis=0).reset_index(drop=True)
+    final_ds = pd.concat([one_per_idx.drop("full_dset_idx", axis=1), additional_data], axis=0).reset_index(drop=True)
     log.info(f"Final dataset: {len(final_ds)} instances")
     return Dataset.from_pandas(final_ds)
+
 
 def does_file_exist(file: Path) -> bool:
     return file.exists()
@@ -225,7 +213,6 @@ def main(cfg: Config):
     ### End Checks
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.restem_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
     if cfg.data.val:
         eval_data = load_dataset(cfg.data.val)
@@ -242,7 +229,7 @@ def main(cfg: Config):
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     stage1_prompts = list(train_data["prompt"])
-    dataset_indices = list(train_data['idx'])
+    dataset_indices = list(train_data["idx"])
     log.info(f"Starting restem episode {cfg.restem_episode}")
     if cfg.restem_stage == 1:
         num_shards = cfg.restem_params.stage1_num_saves if cfg.restem_params.stage1_num_saves else 1
