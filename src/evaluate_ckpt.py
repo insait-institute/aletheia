@@ -3,7 +3,6 @@ import ast
 import csv
 import logging
 import os
-import pickle
 import random
 import re
 import statistics
@@ -163,12 +162,11 @@ def main(args):
     bon_accuracy = sum(bon_values) / len(bon_values) if bon_values else 0
     # Create filename with timestamp
     random_id = str(uuid.uuid4())[:8]
-    pkl_filename = Path(__file__).parent / f"outputs/completions_{random_id}.pkl"
+    pkl_filename = Path(__file__).parent / f"outputs/detailed_{random_id}.pkl"
     csv_filename = Path(__file__).parent / "outputs/eval_results.csv"
     pkl_filename.parent.mkdir(parents=True, exist_ok=True)
     # Save completions to pickle file
-    with open(pkl_filename, "wb") as f:
-        pickle.dump(completions, f)
+
     with open(csv_filename, "a", newline="") as csvfile:
         fieldnames = ["eval_llm", "reward_type", "K", "data", "max_tokens", "SC_accuracy", "BoN_accuracy", "completions_pkl_file"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -184,6 +182,9 @@ def main(args):
                 "completions_pkl_file": pkl_filename.name,
             }
         )
+    data = data.add_column("completion", completions)
+    data = data.add_column("extracted_model_ans", model_answers)
+    data = data.to_pandas().to_pickle(pkl_filename.as_posix())
 
     log.info(f"Results saved to {csv_filename}")
 
