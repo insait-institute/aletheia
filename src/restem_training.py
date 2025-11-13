@@ -4,14 +4,14 @@ import pickle
 import random
 from pathlib import Path
 from typing import List
-
+from kernels import has_kernel
 import hydra
 import torch
 from datasets import Dataset, load_dataset
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
-
+import pandas as pd
 import wandb
 from cerebrm_prompts import LIST_REWARD_PROMPT
 from cerebrm_rewards import extract_boxed_contents_list
@@ -83,8 +83,18 @@ def train_restem_model(
     output_dir: str,
     eval_data: Dataset | None,
 ) -> None:
+    kernel = None
+    if has_kernel("kernels-community/flash-attn3"):
+        kernel = "kernels-community/flash-attn3"
+        log.info("Flash Attention 3 kernel found. Using Flash Attention 3 for training.")
+    elif has_kernel("kernels-community/flash-attn2"):
+        kernel = "kernels-community/flash-attn2"
+        log.info("Flash Attention 2 kernel found. Using Flash Attention 2 for training.")
+    elif has_kernel("kernels-community/flash-attn"):
+        kernel = "kernels-community/flash-attn"
+        log.info("Flash Attention kernel found. Using Flash Attention for training.")
     config = SFTConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": kernel},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.restem_params.overwrite_output_dir,
         completion_only_loss=True,
@@ -125,7 +135,13 @@ def train_restem_model(
         remove_unused_columns=False,
         use_liger_kernel=True,
     )
-    trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=stage3_data)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.restem_params.model_path, model_max_length=cfg.restem_params.max_length)
+    if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
+        tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
+    if cfg.restem_params.pad_token_id is not None:
+        tokenizer.pad_token_id = cfg.restem_params.pad_token_id
+        tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.restem_params.pad_token_id)
+    trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=stage3_data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
@@ -144,24 +160,36 @@ def _by_tokens(example, max_tokens: int) -> bool:
     return example["num_tokens"] <= max_tokens
 
 
-def construct_data_for_training(cfg, stage1_prompts, episode_completions, scored_completions, tokenizer) -> Dataset:
-    prompts, completions, num_tokens = [], [], []
-    for prompt, completions_list, scores in zip(stage1_prompts, episode_completions, scored_completions):
+def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions) -> Dataset:
+    prompts, completions, indices = [], [], []
+    for idx, prompt, completions_list, scores in zip(dataset_indices, stage1_prompts, episode_completions, scored_completions):
         completions_list = [c for c, s in zip(completions_list, scores) if s]
         if not completions_list:
             continue
-        completions_list = random.sample(completions_list, min(len(completions_list), cfg.restem_params.max_samples_to_keep))
         for completion in completions_list:
             if prompt[-1]["role"] == "assistant":
                 completion = prompt[-1]["content"] + completion
                 prompt = prompt[:-1]
+            if not completion.startswith("<think>"):
+                completion = "<think>\n" + completion.strip()
             completion = [{"role": "assistant", "content": completion}]
             prompts.append(prompt)
             completions.append(completion)
-    # print(type(prompts), type(completions), type(prompts[0]), type(completions[0]), prompts[0], completions[0])
-    num_tokens = [_count_tokens(prompt + completion, tokenizer) for prompt, completion in zip(prompts, completions)]
-    return Dataset.from_dict({"prompt": prompts, "completion": completions, "num_tokens": num_tokens})
-
+            indices.append(idx)
+    # Generate data with all possible correct samples
+    full_dataset = pd.DataFrame({"prompt": prompts, "completion": completions, "indices": indices})
+    
+    # Smartly subsample to len(dataset_indices) - First keep atleast one from each available index, and then randomly sample the rest
+    one_per_idx = full_dataset.sample(frac=1, random_state=cfg.restem_params.seed).drop_duplicates(subset='indices', keep='first').reset_index(names="full_dset_idx")
+    log.info(f"Sampled {len(one_per_idx)} instances initially, with one entry per original training index")
+    remaining_data = full_dataset[~full_dataset.index.isin(one_per_idx.full_dset_idx)]
+    # sample either how much is needed to get to the original length, or how much is available
+    num_to_sample = min(len(dataset_indices) - len(one_per_idx), len(remaining_data)) 
+    additional_data = remaining_data.sample(n=num_to_sample, random_state=cfg.restem_params.seed).reset_index(drop=True)
+    log.info(f"Sampled {len(additional_data)} additional instances randomly")
+    final_ds = pd.concat([one_per_idx.drop('full_dset_idx', axis=1), additional_data], axis=0).reset_index(drop=True)
+    log.info(f"Final dataset: {len(final_ds)} instances")
+    return Dataset.from_pandas(final_ds)
 
 def does_file_exist(file: Path) -> bool:
     return file.exists()
@@ -214,6 +242,7 @@ def main(cfg: Config):
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     stage1_prompts = list(train_data["prompt"])
+    dataset_indices = list(train_data['idx'])
     log.info(f"Starting restem episode {cfg.restem_episode}")
     if cfg.restem_stage == 1:
         num_shards = cfg.restem_params.stage1_num_saves if cfg.restem_params.stage1_num_saves else 1
@@ -252,7 +281,7 @@ def main(cfg: Config):
             episode_completions = pickle.load(f)
         with open(output_dir / "scored_completions.pkl", "rb") as f:
             scored_completions = pickle.load(f)
-        stage3_data = construct_data_for_training(cfg, stage1_prompts, episode_completions, scored_completions, tokenizer)
+        stage3_data = construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions)
         log.info(f"Training {model_path_episode} on {len(stage3_data)} examples in Stage 2")
         train_restem_model(cfg, model_path_episode, stage3_data, wandb_run_name, output_dir, eval_data)
         log.info(f"Completed Stage 2 of restem episode {cfg.restem_episode}")
