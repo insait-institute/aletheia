@@ -3,9 +3,10 @@
 data:
     train: CodeShield/CerebRM-Dataset
     val: null
+    chat_template_path: ./dsqwen_chat_template.jinja
 
 restem_params:
-    learning_rate: 5e-5
+    learning_rate: 2e-6
     logging_steps: 1
     lr_scheduler_type: constant_with_warmup
     max_length: 20480
@@ -18,8 +19,8 @@ restem_params:
     weight_decay: 1e-2
     episode_num: 0
     num_generations: 16
-    max_samples_to_keep: 5
     stage1_num_saves: 10
+    pad_token_id: 151647
 
 wandb_params:
     log_level: info

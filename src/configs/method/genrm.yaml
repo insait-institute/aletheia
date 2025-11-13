@@ -6,7 +6,7 @@ data:
     chat_template_path: ./dsqwen_chat_template.jinja
 
 genrm_params:
-    learning_rate: 5e-5
+    learning_rate: 2e-6
     logging_steps: 1
     lr_scheduler_type: constant_with_warmup
     max_length: 20480

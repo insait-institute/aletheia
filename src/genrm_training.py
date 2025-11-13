@@ -94,13 +94,13 @@ def train_model(
         remove_unused_columns=False,
         use_liger_kernel=True,
     )
-    trainer = SFTTrainer(model=model_name, args=config, train_dataset=data)
     tokenizer = AutoTokenizer.from_pretrained(cfg.genrm_params.model_path)
     if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
         tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
     if cfg.genrm_params.pad_token_id is not None:
         tokenizer.pad_token_id = cfg.genrm_params.pad_token_id
         tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.genrm_params.pad_token_id)
+    trainer = SFTTrainer(model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
 
     # data = data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="counting tokens to sort")
     # data = data.sort("num_tokens", reverse=True)
@@ -127,7 +127,7 @@ def does_file_exist(file: Path) -> bool:
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
     model_short_name = cfg.genrm_params.model_path.split("/")[-1]
-    wandb_run_name = f"genrm_cot_{model_short_name}"
+    wandb_run_name = f"genrm_cot_{model_short_name}_LR{cfg.genrm_params.learning_rate}"
     output_dir = Path(f"{os.getenv('WORK')}/genrm_output/{wandb_run_name}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
