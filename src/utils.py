@@ -80,7 +80,7 @@ def run_inference(
     master_port: int = 0,
     enforce_eager: bool = False,
     trust_remote_code: bool = False,
-    max_num_seqs: int = 64,
+    max_num_seqs: int = 256,
     max_model_len: int = None,
     gpu_memory_utilization: float = 0.95,
     compilation_config: int = None,
@@ -94,7 +94,6 @@ def run_inference(
     max_num_batched_tokens: int = 2048,
     **kwargs,
 ) -> List[RequestOutput]:
-    
     if not dp_size and not tp_size:
         dp_size = 1
         tp_size = torch.cuda.device_count()
@@ -104,7 +103,7 @@ def run_inference(
         tp_size = torch.cuda.device_count() // dp_size
     else:
         assert dp_size * tp_size == torch.cuda.device_count(), "dp_size * tp_size must equal the number of available GPUs"
-        
+
     """
     Run data-parallel inference with configurable distributed and optimization settings.
 

@@ -127,7 +127,7 @@ def main(args):
         max_model_len=args.max_tokens + 4096,
         dp_size=1,
         top_p=0.95,
-        max_num_batched_tokens=args.max_tokens + 4096,
+        max_num_batched_tokens=(args.max_tokens + 4096) * 5,
         n=args.K,
         gpu_memory_utilization=0.95,
     )
