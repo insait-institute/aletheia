@@ -17,6 +17,11 @@ from utils import run_inference
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
 
+def _shard(prompts: list, n: int) -> list[list]:
+    k, r = divmod(len(prompts), n)
+    return [prompts[i * k + min(i, r) : (i + 1) * k + min(i + 1, r)] for i in range(n)]
+
+
 def _create_prompts(example):
     potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
@@ -40,9 +45,10 @@ def main(args):
     data = data.map(_create_prompts, num_proc=NUM_WORKERS, desc="Creating prompts")
     if args.wrong_indices_file:
         wrong_indices = Path(args.wrong_indices_file).read_text().splitlines()
-        wrong_indices = ["train_43325"]
         data = data.filter(lambda x: x["idx"] in wrong_indices, num_proc=NUM_WORKERS, desc="Filtering wrong answers")
     prompts = list(data["prompt"])
+    prompts = _shard(prompts, args.num_shards)[args.shard_num]
+    print(f"Generating data for {len(prompts)} examples using {args.size} model...")
     # Generate completions using Deepseek-R1-Distill-Qwen
     model = f"deepseek-ai/Deepseek-R1-Distill-Qwen-{args.size}"
     if args.size == "R1":
@@ -59,6 +65,8 @@ def main(args):
         dp_size=1,
         max_tokens=16384,
         max_model_len=20480,
+        max_num_seqs=2048,
+        max_num_batched_tokens=250_000,
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
     save_dict = {i: c for i, c in zip(data["idx"], completions)}
@@ -68,7 +76,7 @@ def main(args):
     if args.wrong_indices_file:
         output_dir = output_dir / "regenerated"
         output_dir.mkdir(parents=True, exist_ok=True)
-    with open(output_dir / "completions.pkl", "wb") as f:
+    with open(output_dir / f"completions_{args.shard_num}.pkl", "wb") as f:
         pickle.dump(save_dict, f)
 
     print(f"Data generation complete for {args.size}!")
@@ -79,5 +87,7 @@ if __name__ == "__main__":
     (parser.add_argument("--size", type=str, choices=["1.5B", "7B", "14B", "32B", "R1"], required=True, help="Model size to use for data generation"),)
     parser.add_argument("--wrong-indices-file", type=str, default=None, help="Path to a file containing indices of wrong answers.  If not given, inference is done on all examples.")
     parser.add_argument("--K", type=int, default=4, help="Number of completions to generate per prompt.")
+    parser.add_argument("--num_shards", type=int, default=1, help="Number of shards to split the data into for generation.")
+    parser.add_argument("--shard_num", type=int, default=0, help="Shard number to use for generation.")
     args = parser.parse_args()
     main(args)
