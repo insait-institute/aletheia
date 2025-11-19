@@ -113,7 +113,7 @@ def construct_test_prompt(code: str, question: str, language: str):
 def add_authority_bias(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.authority_bias(x) for i, x in enumerate(example["candidates"]) if i != chosen_pos]
+    example["candidates"] = [cm.authority_bias(x) if i != chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "authority_bias_rejected"
     return example
 
@@ -121,7 +121,7 @@ def add_authority_bias(example):
 def add_self_declared_correctness_bias(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.correct_code(x) for i, x in enumerate(example["candidates"]) if i != chosen_pos]
+    example["candidates"] = [cm.correct_code(x) if i != chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "self_declared_correctness_rejected"
     return example
 
@@ -129,7 +129,7 @@ def add_self_declared_correctness_bias(example):
 def add_authority_reference(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.reference_solution(x, example["prompt_id"], example["source"]) for i, x in enumerate(example["candidates"]) if i != chosen_pos]
+    example["candidates"] = [cm.reference_solution(x, example["prompt_id"], example["source"]) if i != chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "authority_reference_rejected"
     return example
 
@@ -137,14 +137,14 @@ def add_authority_reference(example):
 def remove_all_comments(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.remove_comments(x) for i, x in enumerate(example["candidates"]) if i == chosen_pos]
+    example["candidates"] = [cm.remove_comments(x) if i == chosen_pos else x for i, x in enumerate(example["candidates"])]
     return example
 
 
 def add_reverse_authority_bias(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.reverse_authority_bias(x) for i, x in enumerate(example["candidates"]) if i == chosen_pos]
+    example["candidates"] = [cm.reverse_authority_bias(x) if i == chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "reverse_authority_bias_chosen"
     return example
 
@@ -152,7 +152,7 @@ def add_reverse_authority_bias(example):
 def add_self_declared_incorrectness_bias(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.incorrect_code(x) for i, x in enumerate(example["candidates"]) if i == chosen_pos]
+    example["candidates"] = [cm.incorrect_code(x) if i == chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "self_declared_incorrectness_chosen"
     return example
 
@@ -160,7 +160,7 @@ def add_self_declared_incorrectness_bias(example):
 def add_misleading_comments(example):
     cm = CodeModifier(example["language"])
     chosen_pos = example["chosen_position"]
-    example["candidates"] = [cm.misleading_descriptive_comments(x) for i, x in enumerate(example["candidates"]) if i == chosen_pos]
+    example["candidates"] = [cm.misleading_descriptive_comments(x) if i == chosen_pos else x for i, x in enumerate(example["candidates"])]
     example["modification"] = "misleading_comments_chosen"
     return example
 

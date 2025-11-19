@@ -175,7 +175,7 @@ def main(args):
         model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
 
     accuracies = []
-    for correct_ans, answers in zip(data["correct_ans"], model_answers):
+    for correct_ans, answers in zip(data["chosen_answer"], model_answers):
         if len(answers) == 1:
             accuracies.append({"SC": 1 if answers[0] == correct_ans else 0, "BoN": None})
         else:
