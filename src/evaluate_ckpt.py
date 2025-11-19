@@ -53,6 +53,43 @@ def extract_boxed_contents_list(text: str) -> List[int]:
 
 
 def _create_prompts(example, model_name):
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidate_str = "\n\n".join(candidates)
+    valid_options = ", ".join(potential_answers)
+    PROMPT = LIST_REWARD_PROMPT
+    if "judge_lrm" in model_name:
+        PROMPT = JUDGELRM_PROMPT
+        valid_options = None
+    elif "grm" in model_name:
+        PROMPT = DS_GRM_PROMPT
+        valid_options = None
+
+    if valid_options:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=valid_options,
+                ).strip(),
+            },
+        ]
+    else:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    return example
+
+
+def _create_prompts_pair(example, model_name):
     model_name = model_name.lower()
     example["correct_ans"] = "A"
     candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
@@ -93,22 +130,21 @@ def _create_prompts(example, model_name):
     return example
 
 
-def interpret_scores(scores: List[int]) -> str:
-    if len(scores) != 2:
+def interpret_scores(scores: List[int], num_candidates) -> str:
+    possible_answers = ["A", "B", "C", "D", "E"][:num_candidates]
+    if len(scores) != num_candidates:
         return "Invalid"  # Indeterminate if we don't have exactly two scores
-    if scores[0] > scores[1]:
-        return "A"
-    elif scores[1] > scores[0]:
-        return "B"
-    else:
-        return "Invalid"  # Indeterminate if scores are equal
+    max_score = max(scores)
+    if scores.count(max_score) > 1:
+        return "Invalid"  # Indeterminate if there's a tie
+    return possible_answers[scores.index(max_score)]
 
 
 def main(args):
     if args.data == "rq1":
         data = load_dataset("wetsoledrysoul/RQ1-Set", split="test")
     elif args.data == "rq2":
-        data = load_dataset("wetsoledrysoul/RQ2-Set", split="full")
+        data = load_dataset("wetsoledrysoul/RQ2-Set", split="test")
     elif args.data == "rq3":
         data = load_dataset("wetsoledrysoul/RQ3-Set", split="test")
     elif args.data == "rq4":
@@ -126,7 +162,7 @@ def main(args):
         max_model_len=args.max_tokens + 4096,
         dp_size=1,
         top_p=0.95,
-        max_num_batched_tokens=(args.max_tokens + 4096) * 5,
+        max_num_batched_tokens=args.max_tokens + 4096,
         n=args.K,
         gpu_memory_utilization=0.95,
     )
@@ -134,7 +170,7 @@ def main(args):
 
     if "judge_lrm" in args.eval_llm or "grm" in args.eval_llm:
         scores = [[extract_boxed_contents_score10(y) for y in x] for x in completions]
-        model_answers = [[interpret_scores(y) for y in x] for x in scores]
+        model_answers = [[interpret_scores(y, z) for y in x] for x, z in zip(scores, data["num_candidates"])]
     else:
         model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
 
@@ -163,23 +199,22 @@ def main(args):
     # Create filename with timestamp
     random_id = str(uuid.uuid4())[:8]
     pkl_filename = Path(__file__).parent / f"outputs/detailed_{random_id}.pkl"
-    csv_filename = Path(__file__).parent / "outputs/eval_results.csv"
+    csv_filename = Path(__file__).parent / "outputs/eval_results_list.csv"
     pkl_filename.parent.mkdir(parents=True, exist_ok=True)
     # Save completions to pickle file
 
     with open(csv_filename, "a", newline="") as csvfile:
-        fieldnames = ["eval_llm", "reward_type", "K", "data", "max_tokens", "SC_accuracy", "BoN_accuracy", "completions_pkl_file"]
+        fieldnames = ["eval_llm", "K", "data", "max_tokens", "SC_accuracy", "BoN_accuracy", "results_pkl_file"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writerow(
             {
                 "eval_llm": args.eval_llm,
-                "reward_type": "-",
                 "K": args.K,
                 "data": args.data,
                 "max_tokens": args.max_tokens,
                 "SC_accuracy": f"{sc_accuracy:.4f}",
                 "BoN_accuracy": f"{bon_accuracy:.4f}" if bon_values else "N/A",
-                "completions_pkl_file": pkl_filename.name,
+                "results_pkl_file": pkl_filename.name,
             }
         )
     data = data.add_column("completion", completions)
@@ -192,7 +227,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
-    parser.add_argument("--reward_type", type=str, default=None, choices=["list_em", "list_dist", "judge_lrm", "ds_grm"], help="Type of reward model prompt to use")
     parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
     parser.add_argument("--data", type=str, default="heldout", choices=["rq1", "rq2", "rq3", "rq4", "heldout"], help="Which dataset to use for evaluation")
     parser.add_argument("--max_tokens", type=int, default=32768, help="Maximum number of tokens to generate")

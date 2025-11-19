@@ -23,12 +23,20 @@ SP_RUBY = "You are an expert Ruby programmer. You will be given a question (prob
 
 SP_SCALA = "You are an expert Scala programmer. You will be given a question (problem specification) and will generate a correct Scala program that matches the specification and passes all tests. Your program should include an 'object' (e.t., 'object Main') with a 'def main(args: Array[String]): Unit' method. Read the inputs from STDIN (e.g., using 'scala.io.StdIn.readLine()' or 'scala.io.StdIn.readInt()') solve the problem and write the answer to STDOUT (e.g., using 'println()'). Do not directly test on the sample inputs. Enclose your code within a Scala markdown block. Ensure that when the Scala program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."  # noqa: E501
 
+SP_CSHARP = """You are an expert C# programmer. You will be given a question (problem specification) and will generate a correct C# program that matches the specification and passes all tests. Your program should include a class (e.g., 'Program') with a 'public static void Main(string[] args)' method. Read the inputs from STDIN (e.g., using 'Console.ReadLine()' or 'Console.In'). Your program must include robust input handling to pass all test cases. This means you should:
+1. Always check for null or empty strings returned from Console.ReadLine().
+2. Carefully consider the input format to avoid TLE errors from waiting for input that isn't coming.
+3. Use safe parsing methods like int.TryParse or double.TryParse within your logic to avoid errors from invalid input.
+After reading and parsing the input, solve the problem and write the answer to STDOUT (e.g., using 'Console.WriteLine()' or 'Console.Out'). Your output to STDOUT should only be the final answer; do not print error messages or other text, as this will cause test failures. Do not directly test on the sample inputs. Enclose your code within a C# markdown block. Ensure that when the C# program runs, it reads the inputs, runs the algorithm and writes only the final answer to STDOUT."""  # noqa: E501
+
+SP_D = "You are an expert D programmer. You will be given a question (problem specification) and will generate a correct D program that matches the specification and passes all tests. Your program should include a 'void main(string[] args)' function. Read the inputs from STDIN (e.g., using 'readln()' or 'readf()' from 'std.stdio') solve the problem and write the answer to STDOUT (e.g., using 'writeln()' or 'writef()' from 'std.stdio'). Do not directly test on the sample inputs. Enclose your code within a D markdown block. Ensure that when the D program runs, it reads the inputs, runs the algorithm and writes output to STDOUT."  # noqa: E501
+
 
 def generate_completions(args):
-    data = load_dataset("wetsoledrysoul/CerebRM-Dataset", split="test_weak_easy")
-    data = data.select_columns(["id", "query"])
+    data = load_dataset("wetsoledrysoul/Heldout-Set", split="full")
+    data = data.select_columns(["prompt_id", "query"])
     data = data.to_pandas()
-    data = data.drop_duplicates(subset=["id", "query"], keep="first").reset_index(drop=True)
+    data = data.drop_duplicates(subset=["prompt_id", "query"], keep="first").reset_index(drop=True)
     data = Dataset.from_pandas(data)
     log.info(f"Loaded dataset with {len(data)} examples")
     log.info(f"Running inference for {args.model_name}")
@@ -40,7 +48,7 @@ def generate_completions(args):
                     "content": f"{SP}\n\n{question}",
                 }
             ]
-            for SP in [SP_NODEJS, SP_SCALA, SP_RUBY, SP_GO, SP_RUST]
+            for SP in [SP_CSHARP, SP_D]
             for question in data["query"]
         ]
     else:
@@ -52,7 +60,7 @@ def generate_completions(args):
                 },
                 {"role": "user", "content": question},
             ]
-            for SP in [SP_NODEJS, SP_SCALA, SP_RUBY, SP_GO, SP_RUST]
+            for SP in [SP_CSHARP, SP_D]
             for question in data["query"]
         ]
     kwargs = {
@@ -69,10 +77,10 @@ def generate_completions(args):
         **kwargs,
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
-    for i, language in enumerate(["javascript", "scala", "ruby", "go", "rust"]):
+    for i, language in enumerate(["csharp", "d"]):
         (args.output_dir / language).mkdir(parents=True, exist_ok=True)
         completions_lang = completions[len(data) * i : len(data) * (i + 1)]
-        completions_lang = {idx: completion for idx, completion in zip(data["id"], completions_lang)}
+        completions_lang = {idx: completion for idx, completion in zip(data["prompt_id"], completions_lang)}
         with open(args.output_dir / language / "completions.pkl", "wb") as f:
             pickle.dump(completions_lang, f)
         print(f"Saved completions to {args.output_dir / language / 'completions.pkl'}")
