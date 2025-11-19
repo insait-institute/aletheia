@@ -207,7 +207,7 @@ def main(cfg: Config):
             log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
             return None
     elif cfg.restem_stage == 2:
-        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "generation_config.json"]]):
             log.info(f"Stage 2 files are already present in {output_dir}. Skipping.")
             return None
     ### End Checks
