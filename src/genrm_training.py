@@ -29,8 +29,8 @@ NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") e
 def _create_training_dataset(example):
     if not isinstance(example["prompt"], list):
         example["prompt"] = [{"role": "user", "content": example["prompt"]}]
-    if not isinstance(example["chosen"], list):
-        example["chosen"] = [{"role": "assistant", "content": example["chosen"]}]
+    if not isinstance(example["completion"], list):
+        example["completion"] = [{"role": "assistant", "content": example["completion"]}]
     return example
 
 
@@ -124,9 +124,8 @@ def main(cfg: Config):
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     train_data = load_dataset(cfg.data.train)["train"]
-
+    
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
-    train_data = train_data.rename_columns({"chosen": "completion"}).remove_columns(["rejected"])
     train_data = train_data.shuffle(seed=cfg.genrm_params.seed)
     log.info(f"Training {cfg.genrm_params.model_path} on {len(train_data)} examples")
     train_model(cfg, cfg.genrm_params.model_path, train_data, wandb_run_name, output_dir)
