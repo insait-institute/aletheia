@@ -55,7 +55,7 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
     responses = run_inference(
         prompts,
         model,
-        temperature=1.0,
+        temperature=0.6,
         max_tokens=cfg.star_params.max_length - 4096,
         n=1,
         dp_size=dp_size,
