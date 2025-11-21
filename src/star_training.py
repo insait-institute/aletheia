@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 from typing import List
-
 import hydra
 import torch
 from datasets import Dataset, concatenate_datasets, load_dataset
@@ -62,7 +61,7 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
         dp_size=dp_size,
         tp_size=tp_size,
         max_num_batched_tokens=20_000,
-        max_num_seqs=4096,
+        max_num_seqs=256,
         max_model_len=cfg.star_params.max_length,
     )
 
@@ -255,7 +254,7 @@ def main(cfg: Config):
         stage3_data = stage3_data.select_columns(["prompt", "completion", "idx", "chosen_answer"])
         stage3_data = stage3_data.map(_to_conversational, num_proc=NUM_WORKERS, desc="Converting to conversational format")
         log.info(f"Training {cfg.star_params.model_path} on {len(stage3_data)} examples in stage three for episode {cfg.star_episode}")
-        train_star_model(cfg, cfg.star_params.model_path, stage3_data, wandb_run_name, output_dir)
+        train_star_model(cfg, cfg.star_params.model_path, stage3_data, wandb_run_name, output_dir, eval_data=None)
         log.info(f"Completed Stage 3 of star episode {cfg.star_episode}")
 
 
