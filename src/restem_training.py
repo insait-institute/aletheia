@@ -61,7 +61,7 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
         n=cfg.restem_params.num_generations,
         dp_size=dp_size,
         tp_size=tp_size,
-        max_num_batched_tokens=400_000,
+        max_num_batched_tokens=20_000,
         max_num_seqs=4096,
         max_model_len=cfg.restem_params.max_length,
     )

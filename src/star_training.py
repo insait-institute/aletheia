@@ -1,12 +1,12 @@
 import logging
 import os
-import pickle
 from pathlib import Path
 from typing import List
 
 import hydra
 import torch
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
+from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
@@ -51,7 +51,21 @@ def _create_prompts(example, cfg: Config, hinted=False):
 
 def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List[str]:
     # Sampling K responses from the current model
-    responses = run_inference(prompts, model, temperature=0.0, max_tokens=8192, n=1, dp_size=torch.cuda.device_count(), tp_size=1, max_model_len=12288)
+    dp_size = cfg.star_params.gen_dp_size if cfg.star_params.gen_dp_size else 1
+    tp_size = torch.cuda.device_count() // dp_size
+    responses = run_inference(
+        prompts,
+        model,
+        temperature=1.0,
+        max_tokens=cfg.star_params.max_length - 4096,
+        n=1,
+        dp_size=dp_size,
+        tp_size=tp_size,
+        max_num_batched_tokens=20_000,
+        max_num_seqs=4096,
+        max_model_len=cfg.star_params.max_length,
+    )
+
     completions = get_generated_text(responses)
     return [x[0] for x in completions]
 
@@ -69,22 +83,32 @@ def train_star_model(
     stage3_data: Dataset,
     wandb_run_name: str,
     output_dir: str,
+    eval_data: Dataset | None,
 ) -> None:
+    kernel = None
+    if has_kernel("kernels-community/flash-attn3"):
+        kernel = "kernels-community/flash-attn3"
+        log.info("Flash Attention 3 kernel found. Using Flash Attention 3 for training.")
+    elif has_kernel("kernels-community/flash-attn2"):
+        kernel = "kernels-community/flash-attn2"
+        log.info("Flash Attention 2 kernel found. Using Flash Attention 2 for training.")
+    elif has_kernel("kernels-community/flash-attn"):
+        kernel = "kernels-community/flash-attn"
+        log.info("Flash Attention kernel found. Using Flash Attention for training.")
     config = SFTConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": kernel},
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.star_params.overwrite_output_dir,
         completion_only_loss=True,
         # Training parameters
         bf16=cfg.star_params.use_bf16,
-        eval_strategy="no",
-        eval_steps=None,
+        eval_strategy="steps" if eval_data else "no",
+        eval_steps=cfg.star_params.save_steps if eval_data else None,
         gradient_accumulation_steps=cfg.star_params.gradient_accumulation_steps,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         learning_rate=cfg.star_params.learning_rate,
         lr_scheduler_type=cfg.star_params.lr_scheduler_type,
-        lr_scheduler_kwargs=cfg.star_params.lr_scheduler_kwargs,
         max_length=cfg.star_params.max_length,
         num_train_epochs=cfg.star_params.num_epochs,
         per_device_train_batch_size=cfg.star_params.batch_size,
@@ -113,40 +137,37 @@ def train_star_model(
         remove_unused_columns=False,
         use_liger_kernel=True,
     )
-    trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=stage3_data)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.star_params.model_path, model_max_length=cfg.star_params.max_length)
+    if cfg.data.chat_template_path and Path(cfg.data.chat_template_path).exists():
+        tokenizer.chat_template = Path(cfg.data.chat_template_path).read_text()
+    if cfg.star_params.pad_token_id is not None:
+        tokenizer.pad_token_id = cfg.star_params.pad_token_id
+        tokenizer.pad_token = tokenizer.convert_ids_to_tokens(cfg.star_params.pad_token_id)
+    trainer = SFTTrainer(model=model_path_episode, args=config, train_dataset=stage3_data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
     trainer.push_to_hub()
 
 
-def _count_tokens(example, tokenizer):
-    prompt = example["prompt"] + example["completion"]
-    prompt = tokenizer.apply_chat_template(
-        prompt,
-        tokenize=False,
-        add_generation_prompt=False,
-    )
-    tokenized_prompt = tokenizer(prompt, padding=False, truncation=False)["input_ids"]
-    example["num_tokens"] = len(tokenized_prompt)
+def _to_conversational(example):
+    prompt, completion = example["prompt"], example["completion"]
+    if prompt[-1]["role"] == "assistant":
+        completion = prompt[-1]["content"] + completion
+        prompt = prompt[:-1]
+    if not completion.startswith("<think>"):
+        completion = "<think>\n" + completion.strip()
+    example["prompt"] = prompt
+    example["completion"] = [{"role": "assistant", "content": completion}]
     return example
-
-
-def create_messages_from_completions(prompts, completions):
-    processed_prompts, processed_completions = [], []
-    for prompt, completion in zip(prompts, completions):
-        if prompt[-1]["role"] == "assistant":
-            completion = prompt[-1]["content"] + completion
-            prompt = prompt[:-1]
-        processed_prompts.append(prompt)
-        processed_completions.append([{"role": "assistant", "content": completion}])
-    return processed_prompts, processed_completions
-
-
-def _by_tokens(example, max_tokens: int) -> bool:
-    return example["num_tokens"] <= max_tokens
 
 
 def does_file_exist(file: Path) -> bool:
     return file.exists()
+
+
+def _by_idx(example, indices: List[str], membership=True) -> bool:
+    if membership:
+        return example["idx"] in indices
+    return example["idx"] not in indices
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
@@ -159,101 +180,80 @@ def main(cfg: Config):
     model_path_episode = cfg.star_params.model_path if cfg.star_episode == 0 else f"wetsoledrysoul/star_{model_short_name}_ep{cfg.star_episode - 1}"
     output_dir = Path(f"{os.getenv('WORK')}/star_output/{wandb_run_name}")
     if cfg.star_stage == 2:
-        if not all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
+        if not all([does_file_exist(output_dir / x) for x in ["stage1_correct_data.parquet"]]):
             raise ValueError(f"Stage 1 files are missing in {output_dir}. Please run stage 1 for episode {cfg.star_episode} before proceeding.")
     if cfg.star_stage == 3:
-        if not all([does_file_exist(output_dir / x) for x in ["correct_prompts.pkl", "correct_completions.pkl"]]):
+        if not all([does_file_exist(output_dir / x) for x in ["correct_data.parquet"]]):
             raise ValueError(f"Stage 2 files are missing in {output_dir}. Please run stage 2 for episode {cfg.star_episode} before proceeding.")
     ### End sanity checks
 
     ### Check if stage has been completed previously
     if cfg.star_stage == 1:
-        if all([does_file_exist(output_dir / x) for x in ["stage1_correct_prompts.pkl", "stage1_correct_completions.pkl", "stage1_incorrect_indices.pkl"]]):
+        if all([does_file_exist(output_dir / x) for x in ["stage1_correct_data.parquet"]]):
             log.info(f"Stage 1 files are already present in {output_dir}. Skipping.")
             return None
     elif cfg.star_stage == 2:
-        if all([does_file_exist(output_dir / x) for x in ["correct_prompts.pkl", "correct_completions.pkl"]]):
+        if all([does_file_exist(output_dir / x) for x in ["correct_data.parquet"]]):
             log.info(f"Stage 2 files are already present in {output_dir}. Skipping.")
             return None
     elif cfg.star_stage == 3:
-        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+        if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "generation_config.json"]]):
             log.info(f"Stage 3 files are already present in {output_dir}. Skipping.")
             return None
     ### End Checks
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    tokenizer = AutoTokenizer.from_pretrained(cfg.star_params.model_path)
     train_data = load_dataset(cfg.data.train)["train"]
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
     unhinted_prompts = list(train_data["prompt"])
-
+    all_indices = list(train_data["idx"])
     log.info(f"Starting star episode {cfg.star_episode}")
     if cfg.star_stage == 1:
         log.info(f"Processing {len(unhinted_prompts)} prompts for stage 1 with {model_path_episode}")
         stage1_completions = generate_completions(cfg, unhinted_prompts, model_path_episode)
         log.info(f"Scoring {len(stage1_completions)} prompts for stage 1")
         scored_completions = score_completions(stage1_completions, list(train_data["chosen_answer"]))
-        log.info(f"Number of correct responses in stage 1: {sum(scored_completions)} ({(sum(scored_completions) / len(scored_completions)) * 100:.2f}%)")
 
-        correct_indices = [i for i, score in enumerate(scored_completions) if score]
-        incorrect_indices = [i for i, score in enumerate(scored_completions) if not score]
+        s1_idx_completion_map = {i: completion for i, completion, score in zip(all_indices, stage1_completions, scored_completions) if score}
+        log.info(f"Correct responses in S1 (Unhinted prompting): {len(s1_idx_completion_map)} ({(len(s1_idx_completion_map) / len(all_indices)) * 100:.2f}%)")
 
-        stage1_correct_prompts, stage1_correct_completions = create_messages_from_completions(
-            [x for i, x in enumerate(unhinted_prompts) if i in correct_indices], [x for i, x in enumerate(stage1_completions) if i in correct_indices]
-        )
-
-        with open(output_dir / "stage1_correct_prompts.pkl", "wb") as f:
-            pickle.dump(stage1_correct_prompts, f)
-        with open(output_dir / "stage1_correct_completions.pkl", "wb") as f:
-            pickle.dump(stage1_correct_completions, f)
-        with open(output_dir / "stage1_incorrect_indices.pkl", "wb") as f:
-            pickle.dump(incorrect_indices, f)
+        stage1_save_data = train_data.filter(_by_idx, fn_kwargs={"indices": list(s1_idx_completion_map.keys())}, num_proc=NUM_WORKERS, desc="Creating stage 1 correct dataset")
+        stage1_save_data = stage1_save_data.add_column("completion", [s1_idx_completion_map[i] for i in stage1_save_data["idx"]])
+        # Saving
+        stage1_save_data.to_parquet((output_dir / "stage1_correct_data.parquet").as_posix())
         log.info(f"Completed Stage 1 of star episode {cfg.star_episode}")
 
     elif cfg.star_stage == 2:
-        train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "hinted": True}, num_proc=NUM_WORKERS, desc="Creating prompts")
+        stage1_data = load_dataset("parquet", data_files=(output_dir / "stage1_correct_data.parquet").as_posix())["train"]
+        stage2_data = train_data.filter(_by_idx, fn_kwargs={"indices": stage1_data["idx"], "membership": False}, num_proc=NUM_WORKERS, desc="Filtering stage 2 data")
+        stage2_data = stage2_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "hinted": True}, num_proc=NUM_WORKERS, desc="Creating prompts")
 
-        with open(output_dir / "stage1_incorrect_indices.pkl", "rb") as f:
-            stage2_indices = pickle.load(f)
-        with open(output_dir / "stage1_correct_prompts.pkl", "rb") as f:
-            stage1_correct_prompts = pickle.load(f)
-        with open(output_dir / "stage1_correct_completions.pkl", "rb") as f:
-            stage1_correct_completions = pickle.load(f)
-
-        stage2_prompts = list(train_data.select(stage2_indices)["prompt"])
-        stage2_answers = list(train_data.select(stage2_indices)["chosen_answer"])
+        stage2_prompts = list(stage2_data["prompt"])
+        stage2_answers = list(stage2_data["chosen_answer"])
+        stage2_indices = list(stage2_data["idx"])
 
         log.info(f"Processing {len(stage2_prompts)} prompts for stage 2")
         stage2_completions = generate_completions(cfg, stage2_prompts, model_path_episode)
         log.info(f"Scoring {len(stage2_completions)} prompts for stage 2")
         scored_completions = score_completions(stage2_completions, stage2_answers)
-        log.info(f"Number of correct responses in stage 2: {sum(scored_completions)} ({(sum(scored_completions) / len(scored_completions)) * 100:.2f}%)")
+        log.info(f"Number of correct responses in stage 2 (Unhinted prompting): {sum(scored_completions)} ({(sum(scored_completions) / len(scored_completions)) * 100:.2f}%)")
 
-        correct_indices = [i for i, score in zip(stage2_indices, scored_completions) if score]
-        stage2_correct_prompts = [x for i, x in enumerate(unhinted_prompts) if i in correct_indices]
-        stage2_correct_completions = [x for x, score in zip(stage2_completions, scored_completions) if score]
+        s2_idx_completion_map = {i: completion for i, completion, score in zip(stage2_indices, stage2_completions, scored_completions) if score}
+        log.info(f"Correct responses in S2 (Hinted prompting): {len(s2_idx_completion_map)} ({(len(s2_idx_completion_map) / len(stage2_indices)) * 100:.2f}%)")
 
-        stage2_correct_prompts, stage2_correct_completions = create_messages_from_completions(stage2_correct_prompts, stage2_correct_completions)
-        correct_prompts = stage1_correct_prompts + stage2_correct_prompts
-        correct_completions = stage1_correct_completions + stage2_correct_completions
-        with open(output_dir / "correct_prompts.pkl", "wb") as f:
-            pickle.dump(correct_prompts, f)
-        with open(output_dir / "correct_completions.pkl", "wb") as f:
-            pickle.dump(correct_completions, f)
+        stage2_save_data = train_data.filter(_by_idx, fn_kwargs={"indices": list(s2_idx_completion_map.keys())}, num_proc=NUM_WORKERS, desc="Creating stage 2 correct dataset")
+        stage2_save_data = stage2_save_data.add_column("completion", [s2_idx_completion_map[i] for i in stage2_save_data["idx"]])
+
+        save_data = concatenate_datasets([stage1_data, stage2_save_data])
+        save_data.to_parquet((output_dir / "correct_data.parquet").as_posix())
         log.info(f"Completed Stage 2 of star episode {cfg.star_episode}")
     else:
-        correct_prompts, correct_completions = [], []
-        with open(output_dir / "correct_prompts.pkl", "rb") as f:
-            correct_prompts.extend(pickle.load(f))
-        with open(output_dir / "correct_completions.pkl", "rb") as f:
-            correct_completions.extend(pickle.load(f))
-        stage3_data = Dataset.from_dict({"prompt": correct_prompts, "completion": correct_completions})
-        stage3_data = stage3_data.map(_count_tokens, fn_kwargs={"tokenizer": tokenizer}, num_proc=NUM_WORKERS, desc="Counting tokens")
-        stage3_data = stage3_data.filter(_by_tokens, fn_kwargs={"max_tokens": cfg.star_params.max_length}, num_proc=NUM_WORKERS, desc="Filtering long sequences")
-
+        stage3_data = load_dataset("parquet", data_files=(output_dir / "correct_data.parquet").as_posix())["train"]
+        stage3_data = stage3_data.select_columns(["prompt", "completion", "idx", "chosen_answer"])
+        stage3_data = stage3_data.map(_to_conversational, num_proc=NUM_WORKERS, desc="Converting to conversational format")
         log.info(f"Training {cfg.star_params.model_path} on {len(stage3_data)} examples in stage three for episode {cfg.star_episode}")
         train_star_model(cfg, cfg.star_params.model_path, stage3_data, wandb_run_name, output_dir)
         log.info(f"Completed Stage 3 of star episode {cfg.star_episode}")

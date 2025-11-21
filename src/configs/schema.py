@@ -69,12 +69,11 @@ class RESTEMParams:
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
-    episode_num: int = None
     num_generations: int = None
-    thinking_model: bool = None
     gen_dp_size: int = None
     max_samples_to_keep: int = None
     stage1_num_saves: int = None
+    pad_token_id: int = None
 
 
 @dataclass
@@ -95,6 +94,8 @@ class STaRParams:
     use_bf16: bool = None
     warmup_ratio: float = None
     weight_decay: float = None
+    gen_dp_size: int = None
+    pad_token_id: int = None
 
 
 @dataclass

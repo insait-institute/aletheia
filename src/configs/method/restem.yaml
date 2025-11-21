@@ -17,7 +17,6 @@ restem_params:
     use_bf16: True
     warmup_ratio: 0.05
     weight_decay: 1e-2
-    episode_num: 0
     num_generations: 16
     stage1_num_saves: 10
     pad_token_id: 151647
