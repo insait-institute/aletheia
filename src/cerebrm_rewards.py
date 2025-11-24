@@ -90,6 +90,44 @@ def list_reward(completions, chosen_answer, **kwargs):
     return [1.0 if c == gt else 0.0 for c, gt in zip(contents, chosen_answer)]
 
 
+def list_format_reward_cot(completions, num_candidates, **kwargs):
+    """
+    Assigns a reward based on whether the model's output is correctly formatted.
+    0 if correctly formatted, else -1
+    Args:
+        completions (List[List[Dict[str,str]]]): A list of model completions, each being a list of dictionaries with keys "role" and "content". In practice, each completion list has only one dictionary.
+    Returns:
+        List[float]: A list of rewards for each completion.
+    """
+    pattern_dict = {
+        2: r"\\boxed{[AB]}$",
+        3: r"\\boxed{[ABC]}$",
+        4: r"\\boxed{[ABCD]}$",
+        5: r"\\boxed{[ABCDE]}$",
+    }
+    completion_contents = [completion[0]["content"].strip() for completion in completions]
+    print(completion_contents)
+    matches = [re.search(pattern_dict[nc], content, re.DOTALL) for content, nc in zip(completion_contents, num_candidates)]
+    return [0.0 if match else -1.0 for match in matches]
+
+
+def list_reward_cot(completions, chosen_answer, **kwargs):
+    """
+    Calculates the reward for each completion based on the chosen answer.
+    +1 if the chosen answer matches the ground truth, else 0.
+
+    Args:
+        completions (List[List[Dict[str,str]]]): A list of model completions, each being a list of dictionaries with keys "role" and "content". In practice, each completion list has only one dictionary.
+        chosen_answer (List[str]): A list of ground truth answers.
+
+    Returns:
+        List[float]: A list of rewards for each completion.
+    """
+    contents = [completion[0]["content"].strip() for completion in completions]
+    contents = [extract_boxed_contents_list(completion) for completion in contents]
+    return [1.0 if c == gt else 0.0 for c, gt in zip(contents, chosen_answer)]
+
+
 def list_reward_with_distance(completions, pass_rates, num_candidates, **kwargs):
     """
     Assigns a +1 reward if the model's chosen answer matches the ground truth.

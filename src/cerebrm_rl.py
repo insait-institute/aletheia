@@ -4,6 +4,7 @@ import os
 import hydra
 import torch
 from datasets import load_dataset
+from kernels import has_kernel
 from omegaconf import OmegaConf
 from peft import LoraConfig
 from transformers import AutoTokenizer
@@ -11,9 +12,8 @@ from trl import GRPOConfig, GRPOTrainer
 
 import cerebrm_rewards
 import wandb
-from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from configs.schema import Config
-from utils import maybe_resume_training
+from utils import create_prompts, maybe_resume_training
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -29,56 +29,18 @@ def _filter_pairs(example):
     return example["num_candidates"] == 2
 
 
-def _create_prompts(example, grpo_reward_type):
-    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
-    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
-    candidate_str = "\n\n".join(candidates)
-    if grpo_reward_type in ["list_em", "list_dist", "pair"]:
-        example["prompt"] = [
-            {
-                "role": "user",
-                "content": LIST_REWARD_PROMPT.format(
-                    question=example["query"],
-                    candidates=candidate_str,
-                    valid_options=", ".join(potential_answers),
-                ).strip(),
-            },
-            {"role": "assistant", "content": "<think>\n"},  # to avoid bug in reward calculation in older trl versions
-        ]
-    elif grpo_reward_type == "judge_lrm":
-        example["prompt"] = [
-            {
-                "role": "user",
-                "content": JUDGELRM_PROMPT.format(
-                    question=example["query"],
-                    candidates=candidate_str,
-                ).strip(),
-            },
-            {"role": "assistant", "content": "<think>\n"},
-        ]
-    elif grpo_reward_type == "ds_grm":
-        example["prompt"] = [
-            {
-                "role": "user",
-                "content": DS_GRM_PROMPT.format(
-                    question=example["query"],
-                    candidates=candidate_str,
-                ).strip(),
-            },
-            {"role": "assistant", "content": "<think>\n"},
-        ]
-    return example
-
-
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def train(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     model_short_name = cfg.grpo_params.model_path.split("/")[-1].lower()
     wandb_run_name = f"CerebRM-{model_short_name}-{cfg.grpo_reward_type}"
     output_dir = f"{os.getenv('WORK')}/cerebrm_output/{wandb_run_name}"
-
+    is_thinking_model = "deepseek" in cfg.grpo_params.model_path.lower()
     if cfg.grpo_reward_type in ["list_em", "pair"]:
-        REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]
+        if is_thinking_model:
+            REWARD_FUNC = [cerebrm_rewards.list_reward, cerebrm_rewards.list_format_reward]
+        else:
+            REWARD_FUNC = [cerebrm_rewards.list_reward_cot, cerebrm_rewards.list_format_reward_cot]
     elif cfg.grpo_reward_type == "list_dist":
         REWARD_FUNC = [cerebrm_rewards.list_reward_with_distance, cerebrm_rewards.list_format_reward]
     elif cfg.grpo_reward_type == "judge_lrm":
@@ -97,13 +59,13 @@ def train(cfg: Config):
     train_data = load_dataset(cfg.data.train)["train"]
     if cfg.grpo_reward_type in ["judge_lrm", "pair"]:
         train_data = train_data.filter(_filter_pairs, num_proc=NUM_WORKERS, desc="Only keeping pairs for judge_lrm")
-    train_data = train_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    train_data = train_data.map(create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
     if cfg.data.val:
         if cfg.data.val == cfg.data.train:
             eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
         else:
             eval_data = load_dataset(cfg.data.val)["Full"]
-        eval_data = eval_data.map(_create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type}, num_proc=NUM_WORKERS, desc="Creating prompts")
+        eval_data = eval_data.map(create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
     else:
         eval_data = None
     log.info(f"Loaded data from {cfg.data.train}")
@@ -112,8 +74,19 @@ def train(cfg: Config):
     log.info(f"Output directory: {output_dir}")
     log.info(f"Number of CPUs: {NUM_WORKERS}")
     log.info(f"Number of GPUs: {os.environ.get('WORLD_SIZE', torch.cuda.device_count())}")
+    kernel = None
+    if has_kernel("kernels-community/flash-attn3"):
+        kernel = "kernels-community/flash-attn3"
+        log.info("Flash Attention 3 kernel found. Using Flash Attention 3 for training.")
+    elif has_kernel("kernels-community/flash-attn2"):
+        kernel = "kernels-community/flash-attn2"
+        log.info("Flash Attention 2 kernel found. Using Flash Attention 2 for training.")
+    elif has_kernel("kernels-community/flash-attn"):
+        kernel = "kernels-community/flash-attn"
+        log.info("Flash Attention kernel found. Using Flash Attention for training.")
+
     config = GRPOConfig(
-        model_init_kwargs={"attn_implementation": "kernels-community/flash-attn"},
+        model_init_kwargs={"attn_implementation": kernel},
         # GRPO parameters
         beta=0.0 if cfg.grpo_params.kl_penalty == "no" else cfg.grpo_params.beta,
         epsilon=cfg.grpo_params.epsilon,

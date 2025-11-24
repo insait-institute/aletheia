@@ -12,6 +12,8 @@ from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, RequestOutput, SamplingParams
 from vllm.utils import get_open_port
 
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
+
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 ch = logging.StreamHandler()
@@ -26,6 +28,47 @@ class Message:
 
 
 Prompt = List[Message]
+
+
+def create_prompts(example, grpo_reward_type, thinking=True):
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidate_str = "\n\n".join(candidates)
+    if grpo_reward_type in ["list_em", "list_dist", "pair"]:
+        LIST_PROMPT = LIST_REWARD_PROMPT if thinking else LIST_REWARD_PROMPT_COT
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LIST_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=", ".join(potential_answers),
+                ).strip(),
+            },
+        ]
+    elif grpo_reward_type == "judge_lrm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": JUDGELRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    elif grpo_reward_type == "ds_grm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": DS_GRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    if thinking:
+        example["prompt"].append({"role": "assistant", "content": "<think>\n"})
+    return example
 
 
 def get_generated_text(responses: List[RequestOutput]) -> List[List[str]]:

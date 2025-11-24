@@ -10,6 +10,18 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Enclose your final answer in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly one of the options enclosed within \\boxed{{}}, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
+LIST_REWARD_PROMPT_COT = """
+You are an expert judge of coding problems. Given a coding problem and multiple candidate solutions, your task is to evaluate the correctness of each solution based on the problem description. Your evaluation should solely be based on the functional correctness of the codes. It is guaranteed that one and only one of the candidates is completely correct. Here is the coding question followed by the candidate solutions:
+
+[QUESTION]
+{question}
+[/QUESTION]
+
+{candidates}
+
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Think carefully step-by-step before responding with one of the options in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
+"""
+
 JUDGELRM_PROMPT = """
 You are an expert judge of coding problems. Given a coding problem and two candidate solutions, your task is to evaluate the correctness of each solution based on the problem description. Your evaluation should solely be based on the functional correctness of the codes. It is guaranteed that one and only one of the candidates is completely correct. Here is the coding question followed by the candidate solutions:
 
