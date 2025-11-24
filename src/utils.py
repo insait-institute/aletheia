@@ -8,7 +8,7 @@ from time import sleep
 from typing import List
 
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, RequestOutput, SamplingParams
 from vllm.utils import get_open_port
 
@@ -69,6 +69,17 @@ def maybe_resume_training(base_dir: str) -> bool:
     return True
 
 
+def get_best_config(model_name, dp_size, tp_size):
+    config = AutoConfig.from_pretrained(model_name)
+    attn_heads = config.num_attention_heads
+    avail_gpus = torch.cuda.device_count()
+    assert avail_gpus == dp_size * tp_size
+    while attn_heads % tp_size:
+        tp_size /= 2
+        dp_size *= 2
+    return dp_size, tp_size
+
+
 def run_inference(
     prompts: List[Prompt],
     model: str,
@@ -103,7 +114,7 @@ def run_inference(
         tp_size = torch.cuda.device_count() // dp_size
     else:
         assert dp_size * tp_size == torch.cuda.device_count(), "dp_size * tp_size must equal the number of available GPUs"
-
+    dp_size, tp_size = get_best_config(model, dp_size, tp_size)
     """
     Run data-parallel inference with configurable distributed and optimization settings.
 
