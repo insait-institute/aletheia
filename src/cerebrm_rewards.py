@@ -106,7 +106,6 @@ def list_format_reward_cot(completions, num_candidates, **kwargs):
         5: r"\\boxed{[ABCDE]}$",
     }
     completion_contents = [completion[0]["content"].strip() for completion in completions]
-    print(completion_contents)
     matches = [re.search(pattern_dict[nc], content, re.DOTALL) for content, nc in zip(completion_contents, num_candidates)]
     return [0.0 if match else -1.0 for match in matches]
 
