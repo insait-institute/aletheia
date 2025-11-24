@@ -68,6 +68,7 @@ def train(cfg: Config):
         eval_data = eval_data.map(create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
     else:
         eval_data = None
+    log.info(f"Example prompt: {train_data['prompt'][0]}")
     log.info(f"Loaded data from {cfg.data.train}")
     log.info(f"Train size: {len(train_data)}")
     log.info(f"Eval size: {len(eval_data) if eval_data else 'N/A'}")

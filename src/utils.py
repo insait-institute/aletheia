@@ -35,17 +35,26 @@ def create_prompts(example, grpo_reward_type, thinking=True):
     candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     if grpo_reward_type in ["list_em", "list_dist", "pair"]:
-        LIST_PROMPT = LIST_REWARD_PROMPT if thinking else LIST_REWARD_PROMPT_COT
-        example["prompt"] = [
-            {
-                "role": "user",
-                "content": LIST_PROMPT.format(
-                    question=example["query"],
-                    candidates=candidate_str,
-                    valid_options=", ".join(potential_answers),
-                ).strip(),
-            },
-        ]
+        if thinking:
+            example["prompt"] = [
+                {
+                    "role": "user",
+                    "content": LIST_REWARD_PROMPT.format(
+                        question=example["query"],
+                        candidates=candidate_str,
+                        valid_options=", ".join(potential_answers),
+                    ).strip(),
+                },
+            ]
+        else:
+            example["prompt"] = [
+                {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=", ".join(potential_answers))},
+                {
+                    "role": "user",
+                    "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+                },
+            ]
+
     elif grpo_reward_type == "judge_lrm":
         example["prompt"] = [
             {
