@@ -19,7 +19,10 @@ You are an expert judge of coding problems. Given a coding problem and multiple 
 
 {candidates}
 
-You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Think carefully step-by-step before responding with one of the options in the format \\boxed{{X}}, where X is your chosen option among the candidates. Do not provide any explanations or additional text. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
+You are to indicate your choice of candidate only by responding with one of the following options: {valid_options}. Your response should be in the following format:
+Analysis: <Your step-by-step reasoning here>
+Final Answer: \\boxed{{X}}
+where X is your chosen option among the candidates. Do not provide any additional text. Your response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.
 """
 
 JUDGELRM_PROMPT = """
