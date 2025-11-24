@@ -12,8 +12,9 @@ from trl import GRPOConfig, GRPOTrainer
 
 import cerebrm_rewards
 import wandb
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
 from configs.schema import Config
-from utils import create_prompts, maybe_resume_training
+from utils import maybe_resume_training
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -23,6 +24,56 @@ os.environ["WANDB_ENTITY"] = "CodeShield"
 os.environ["WANDB_PROJECT"] = "CerebRM-GRPO-0925"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+
+
+def create_prompts(example, grpo_reward_type, thinking=True):
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidate_str = "\n\n".join(candidates)
+    if grpo_reward_type in ["list_em", "list_dist", "pair"]:
+        if thinking:
+            example["prompt"] = [
+                {
+                    "role": "user",
+                    "content": LIST_REWARD_PROMPT.format(
+                        question=example["query"],
+                        candidates=candidate_str,
+                        valid_options=", ".join(potential_answers),
+                    ).strip(),
+                },
+            ]
+        else:
+            example["prompt"] = [
+                {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=", ".join(potential_answers))},
+                {
+                    "role": "user",
+                    "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+                },
+            ]
+
+    elif grpo_reward_type == "judge_lrm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": JUDGELRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    elif grpo_reward_type == "ds_grm":
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": DS_GRM_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    if thinking:
+        example["prompt"].append({"role": "assistant", "content": "<think>\n"})
+    return example
 
 
 def _filter_pairs(example):
