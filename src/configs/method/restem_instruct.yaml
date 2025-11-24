@@ -1,0 +1,27 @@
+# @package _global_
+
+data:
+    train: CodeShield/CerebRM-Dataset
+    val: null
+
+restem_params:
+    learning_rate: 2e-6
+    logging_steps: 1
+    lr_scheduler_type: constant_with_warmup
+    max_length: 8192
+    num_epochs: 1
+    overwrite_output_dir: True
+    save_steps: 0.25
+    seed: 42
+    use_bf16: True
+    warmup_ratio: 0.05
+    weight_decay: 1e-2
+    num_generations: 16
+    stage1_num_saves: 10
+    pad_token_id: 151647
+
+wandb_params:
+    log_level: info
+
+restem_stage: null
+restem_episode: null

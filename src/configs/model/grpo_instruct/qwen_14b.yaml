@@ -1,0 +1,10 @@
+# @package _global_
+
+grpo_params:
+    model_path: Qwen/Qwen2.5-14B-Instruct
+    batch_size: 1
+    gradient_accumulation_steps: 128
+
+gen_params:
+    vllm_gpu_memory_utilization: 0.25
+    vllm_tensor_parallel_size: 4

@@ -1,0 +1,7 @@
+# @package _global_
+
+dpo_params:
+    model_path: Qwen/Qwen2.5-7B-Instruct
+    batch_size: 1
+    gradient_accumulation_steps: 16
+    precompute_ref_batch_size: 2
