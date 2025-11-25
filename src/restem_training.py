@@ -14,7 +14,7 @@ from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 import wandb
-from cerebrm_prompts import LIST_REWARD_PROMPT
+from cerebrm_prompts import LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
 from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
@@ -32,20 +32,30 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
 
-def _create_prompts(example, cfg: Config):
+def _create_prompts(example, cfg: Config, thinking=True):
     potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
-    example["prompt"] = [
-        {
-            "role": "user",
-            "content": LIST_REWARD_PROMPT.format(
-                question=example["query"],
-                candidates=candidate_str,
-                valid_options=", ".join(potential_answers),
-            ).strip(),
-        },
-    ]
+    if thinking:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LIST_REWARD_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=", ".join(potential_answers),
+                ).strip(),
+            },
+        ]
+    else:
+        example["prompt"] = [
+            {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=", ".join(potential_answers))},
+            {
+                "role": "user",
+                "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+            },
+        ]
+
     return example
 
 
@@ -62,7 +72,7 @@ def generate_completions(cfg: Config, prompts: List[Prompt], model: str) -> List
         dp_size=dp_size,
         tp_size=tp_size,
         max_num_batched_tokens=20_000,
-        max_num_seqs=4096,
+        max_num_seqs=256,
         max_model_len=cfg.restem_params.max_length,
     )
     completions = get_generated_text(responses)
@@ -147,7 +157,7 @@ def train_restem_model(
     trainer.push_to_hub()
 
 
-def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions) -> Dataset:
+def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions, thinking=True) -> Dataset:
     prompts, completions, indices = [], [], []
     for idx, prompt, completions_list, scores in zip(dataset_indices, stage1_prompts, episode_completions, scored_completions):
         completions_list = [c for c, s in zip(completions_list, scores) if s]
@@ -157,7 +167,7 @@ def construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_co
             if prompt[-1]["role"] == "assistant":
                 completion = prompt[-1]["content"] + completion
                 prompt = prompt[:-1]
-            if not completion.startswith("<think>"):
+            if not completion.startswith("<think>") and thinking:
                 completion = "<think>\n" + completion.strip()
             completion = [{"role": "assistant", "content": completion}]
             prompts.append(prompt)
@@ -190,6 +200,7 @@ def _shard(prompts: list, n: int) -> list[list]:
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
+    is_thinking_model = "deepseek" in cfg.restem_params.model_path.lower()
     ### Sanity checks
     assert cfg.restem_stage in [1, 2], "Invalid restem_stage. Must be 1 for generating and scoring completions, or 2 for training."
     assert cfg.restem_episode >= 0, "Invalid restem_episode. Must be a non-negative integer."
@@ -227,7 +238,7 @@ def main(cfg: Config):
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
     stage1_prompts = list(train_data["prompt"])
     dataset_indices = list(train_data["idx"])
     log.info(f"Starting restem episode {cfg.restem_episode}")
@@ -268,7 +279,7 @@ def main(cfg: Config):
             episode_completions = pickle.load(f)
         with open(output_dir / "scored_completions.pkl", "rb") as f:
             scored_completions = pickle.load(f)
-        stage3_data = construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions)
+        stage3_data = construct_data_for_training(cfg, dataset_indices, stage1_prompts, episode_completions, scored_completions, thinking=is_thinking_model)
         log.info(f"Training {model_path_episode} on {len(stage3_data)} examples in Stage 2")
         train_restem_model(cfg, model_path_episode, stage3_data, wandb_run_name, output_dir, eval_data)
         log.info(f"Completed Stage 2 of restem episode {cfg.restem_episode}")
