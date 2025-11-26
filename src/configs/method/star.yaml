@@ -18,6 +18,7 @@ star_params:
     warmup_ratio: 0.05
     weight_decay: 1e-2
     pad_token_id: 151647
+    num_steps: 781
     
 wandb_params:
     log_level: info
