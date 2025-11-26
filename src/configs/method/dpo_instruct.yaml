@@ -3,7 +3,8 @@
 data:
     train: wetsoledrysoul/CerebRM-Dataset-DPO-Instruct
     val: null
-
+    chat_template_path: null
+    
 dpo_params:
     learning_rate: 5e-7
     beta: 0.1

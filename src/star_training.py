@@ -110,7 +110,7 @@ def train_star_model(
         output_dir=f"{output_dir}/intermediate_checkpoints",
         overwrite_output_dir=cfg.star_params.overwrite_output_dir,
         completion_only_loss=True,
-        num_steps=cfg.star_params.num_steps,
+        max_steps=cfg.star_params.num_steps,
         # Training parameters
         bf16=cfg.star_params.use_bf16,
         eval_strategy="steps" if eval_data else "no",

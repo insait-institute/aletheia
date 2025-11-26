@@ -3,7 +3,8 @@
 data:
     train: wetsoledrysoul/CerebRM-Dataset-GenRM-Instruct
     val: null
-
+    chat_template_path: null
+    
 genrm_params:
     learning_rate: 2e-6
     logging_steps: 1

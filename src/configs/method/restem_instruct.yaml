@@ -3,6 +3,7 @@
 data:
     train: CodeShield/CerebRM-Dataset
     val: null
+    chat_template_path: null
 
 restem_params:
     learning_rate: 2e-6
