@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 from typing import List
+
 import hydra
 import torch
 from datasets import Dataset, concatenate_datasets, load_dataset
@@ -11,7 +12,7 @@ from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 import wandb
-from cerebrm_prompts import LIST_REWARD_PROMPT
+from cerebrm_prompts import LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
 from cerebrm_rewards import extract_boxed_contents_list
 from configs.schema import Config
 from utils import Prompt, get_generated_text, maybe_resume_training, run_inference
@@ -29,22 +30,32 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
 
-def _create_prompts(example, cfg: Config, hinted=False):
+def _create_prompts(example, cfg: Config, hinted=False, thinking=True):
     potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
     candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
     candidate_str = "\n\n".join(candidates)
     if hinted:
         candidate_str += f"\n\nHint: The correct answer is {example['chosen_answer']}"
-    example["prompt"] = [
-        {
-            "role": "user",
-            "content": LIST_REWARD_PROMPT.format(
-                question=example["query"],
-                candidates=candidate_str,
-                valid_options=", ".join(potential_answers),
-            ).strip(),
-        },
-    ]
+    if thinking:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LIST_REWARD_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=", ".join(potential_answers),
+                ).strip(),
+            },
+        ]
+    else:
+        example["prompt"] = [
+            {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=", ".join(potential_answers))},
+            {
+                "role": "user",
+                "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+            },
+        ]
+
     return example
 
 
@@ -147,12 +158,12 @@ def train_star_model(
     trainer.push_to_hub()
 
 
-def _to_conversational(example):
+def _to_conversational(example, thinking=True):
     prompt, completion = example["prompt"], example["completion"]
     if prompt[-1]["role"] == "assistant":
         completion = prompt[-1]["content"] + completion
         prompt = prompt[:-1]
-    if not completion.startswith("<think>"):
+    if not completion.startswith("<think>") and thinking:
         completion = "<think>\n" + completion.strip()
     example["prompt"] = prompt
     example["completion"] = [{"role": "assistant", "content": completion}]
@@ -171,6 +182,7 @@ def _by_idx(example, indices: List[str], membership=True) -> bool:
 
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def main(cfg: Config):
+    is_thinking_model = "deepseek" in cfg.star_params.model_path.lower()
     ### Sanity checks
     assert cfg.star_stage in [1, 2, 3], "Invalid star_stage. Must be 1 for generating and scoring completions, 2 for generating and scoring hinted completions, or 3 for training."
     assert cfg.star_episode >= 0, "Invalid star_episode. Must be a non-negative integer."
@@ -206,7 +218,7 @@ def main(cfg: Config):
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    train_data = train_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
     unhinted_prompts = list(train_data["prompt"])
     all_indices = list(train_data["idx"])
     log.info(f"Starting star episode {cfg.star_episode}")
@@ -228,7 +240,7 @@ def main(cfg: Config):
     elif cfg.star_stage == 2:
         stage1_data = load_dataset("parquet", data_files=(output_dir / "stage1_correct_data.parquet").as_posix())["train"]
         stage2_data = train_data.filter(_by_idx, fn_kwargs={"indices": stage1_data["idx"], "membership": False}, num_proc=NUM_WORKERS, desc="Filtering stage 2 data")
-        stage2_data = stage2_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "hinted": True}, num_proc=NUM_WORKERS, desc="Creating prompts")
+        stage2_data = stage2_data.map(_create_prompts, fn_kwargs={"cfg": cfg, "hinted": True, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
 
         stage2_prompts = list(stage2_data["prompt"])
         stage2_answers = list(stage2_data["chosen_answer"])
@@ -252,7 +264,7 @@ def main(cfg: Config):
     else:
         stage3_data = load_dataset("parquet", data_files=(output_dir / "correct_data.parquet").as_posix())["train"]
         stage3_data = stage3_data.select_columns(["prompt", "completion", "idx", "chosen_answer"])
-        stage3_data = stage3_data.map(_to_conversational, num_proc=NUM_WORKERS, desc="Converting to conversational format")
+        stage3_data = stage3_data.map(_to_conversational, fn_kwargs={"thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Converting to conversational format")
         log.info(f"Training {cfg.star_params.model_path} on {len(stage3_data)} examples in stage three for episode {cfg.star_episode}")
         train_star_model(cfg, cfg.star_params.model_path, stage3_data, wandb_run_name, output_dir, eval_data=None)
         log.info(f"Completed Stage 3 of star episode {cfg.star_episode}")
