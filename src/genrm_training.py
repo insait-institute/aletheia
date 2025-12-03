@@ -3,15 +3,15 @@ import os
 from pathlib import Path
 
 import hydra
+import wandb
+from configs.schema import Config
 from datasets import Dataset, load_dataset
 from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
-from trl import SFTConfig, SFTTrainer
-
-import wandb
-from configs.schema import Config
 from utils import maybe_resume_training
+
+from trl import SFTConfig, SFTTrainer
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -118,13 +118,13 @@ def main(cfg: Config):
     output_dir = Path(f"{os.getenv('WORK')}/genrm_output/{wandb_run_name}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
+    if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "generation_config.json"]]):
         log.info(f"GenRM CoT training files are already present in {output_dir}. Skipping.")
         return None
 
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     train_data = load_dataset(cfg.data.train)["train"]
-    
+
     train_data = train_data.map(_create_training_dataset, num_proc=NUM_WORKERS, desc="Creating prompts")
     train_data = train_data.shuffle(seed=cfg.genrm_params.seed)
     log.info(f"Training {cfg.genrm_params.model_path} on {len(train_data)} examples")
