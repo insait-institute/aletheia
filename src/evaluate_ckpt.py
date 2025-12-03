@@ -10,9 +10,8 @@ import uuid
 from pathlib import Path
 from typing import List
 
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
 from datasets import load_dataset
-
-from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT
 from utils import run_inference
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
@@ -50,6 +49,21 @@ def extract_boxed_contents_list(text: str) -> List[int]:
     except Exception:
         matches = None
     return matches
+
+
+def _create_prompts_instruct(example):
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidate_str = "\n\n".join(candidates)
+    valid_options = ", ".join(potential_answers)
+    example["prompt"] = [
+        {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=valid_options)},
+        {
+            "role": "user",
+            "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+        },
+    ]
+    return example
 
 
 def _create_prompts(example, model_name):
@@ -92,7 +106,9 @@ def _create_prompts(example, model_name):
 def _create_prompts_pair(example, model_name):
     model_name = model_name.lower()
     example["correct_ans"] = "A"
-    candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
+    candidate_str = (
+        f"[CANDIDATE_A]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
+    )
     if random.random() > 0.5:
         example["correct_ans"] = "B"
         candidate_str = f"[CANDIDATE_A]\n```{example['language']}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{example['language']}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
@@ -146,13 +162,15 @@ def main(args):
     elif args.data == "rq2":
         data = load_dataset("wetsoledrysoul/RQ2-Set", split="test")
     elif args.data == "rq3":
-        data = load_dataset("wetsoledrysoul/RQ3-Set", split="test")
+        data = load_dataset("wetsoledrysoul/Mehnat-Set", split="test")
     elif args.data == "rq4":
         data = load_dataset("wetsoledrysoul/RQ4-Set", split="test")
     else:
         data = load_dataset("wetsoledrysoul/Heldout-Set", split="test")
-
-    data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    if "instruct" not in args.eval_llm.lower():
+        data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
+    else:
+        data = data.map(_create_prompts_instruct, num_proc=NUM_WORKERS, desc="Creating prompts")
     prompts = list(data["prompt"])
     completions = run_inference(
         prompts,
@@ -162,8 +180,9 @@ def main(args):
         max_model_len=args.max_tokens + 4096,
         dp_size=1,
         top_p=0.95,
-        max_num_batched_tokens=args.max_tokens + 4096,
+        max_num_batched_tokens=(args.max_tokens + 4096) * 4,
         n=args.K,
+        # repetition_penalty=1.1 if args.data == "rq3" else 1.0,
         gpu_memory_utilization=0.95,
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
