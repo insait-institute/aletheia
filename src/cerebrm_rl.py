@@ -1,20 +1,20 @@
 import logging
 import os
 
+import cerebrm_rewards
 import hydra
 import torch
+import wandb
+from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
+from configs.schema import Config
 from datasets import load_dataset
 from kernels import has_kernel
 from omegaconf import OmegaConf
 from peft import LoraConfig
 from transformers import AutoTokenizer
-from trl import GRPOConfig, GRPOTrainer
-
-import cerebrm_rewards
-import wandb
-from cerebrm_prompts import DS_GRM_PROMPT, JUDGELRM_PROMPT, LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
-from configs.schema import Config
 from utils import maybe_resume_training
+
+from trl import GRPOConfig, GRPOTrainer
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def _filter_pairs(example):
 def train(cfg: Config):
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
     model_short_name = cfg.grpo_params.model_path.split("/")[-1].lower()
-    wandb_run_name = f"CerebRM-{model_short_name}-{cfg.grpo_reward_type}"
+    wandb_run_name = f"CerebRM-{model_short_name}-{cfg.grpo_reward_type}-so{cfg.grpo_params.generate_every}"
     output_dir = f"{os.getenv('WORK')}/cerebrm_output/{wandb_run_name}"
     is_thinking_model = "deepseek" in cfg.grpo_params.model_path.lower()
     if cfg.grpo_reward_type in ["list_em", "pair"]:
@@ -116,7 +116,9 @@ def train(cfg: Config):
             eval_data = load_dataset(cfg.data.val)["test_weak_easy"]
         else:
             eval_data = load_dataset(cfg.data.val)["Full"]
-        eval_data = eval_data.map(create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts")
+        eval_data = eval_data.map(
+            create_prompts, fn_kwargs={"grpo_reward_type": cfg.grpo_reward_type, "thinking": is_thinking_model}, num_proc=NUM_WORKERS, desc="Creating prompts"
+        )
     else:
         eval_data = None
     log.info(f"Example prompt: {train_data['prompt'][0]}")
