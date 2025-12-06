@@ -13,6 +13,7 @@ from omegaconf import OmegaConf
 from peft import LoraConfig
 from transformers import AutoTokenizer
 from utils import maybe_resume_training
+from functools import partial, update_wrapper
 
 from trl import GRPOConfig, GRPOTrainer
 
@@ -102,7 +103,9 @@ def train(cfg: Config):
         raise ValueError(f"Unknown reward type: {cfg.grpo_reward_type}. Choose from 'list_em', 'list_dist', 'judge_lrm', 'ds_grm'.")
 
     if cfg.grpo_params.loss_type in ["dapo", "bnpo"]:
-        REWARD_FUNC.append(cerebrm_rewards.soft_overlong_punishment)
+        soft_overlong = partial(cerebrm_rewards.soft_overlong_punishment, L_max=cfg.gen_params.max_completion_length, L_cache=1024 if cfg.gen_params.max_completion_length<=4096 else 2048)
+        update_wrapper(soft_overlong, cerebrm_rewards.soft_overlong_punishment)
+        REWARD_FUNC.append(soft_overlong)
 
     if cfg.grpo_params.kl_penalty == "dynamic" and cfg.grpo_params.ref_model_sync_steps <= 0:
         raise ValueError("kl_update_steps must be greater than 0 for dynamic KL penalty.")

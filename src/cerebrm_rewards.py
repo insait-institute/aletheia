@@ -4,9 +4,6 @@ from typing import List
 
 import numpy as np
 
-DAPO_ARGS = {"L_max": 16384, "L_cache": 2048}
-
-
 def extract_boxed_contents_score10(text: str) -> List[int]:
     """
     Extracts all contents within \\boxed{...} from a given text string,
@@ -38,15 +35,15 @@ def extract_boxed_contents_list(text: str) -> str:
     return matches
 
 
-def soft_overlong_punishment(completion_ids, **kwargs):
+def soft_overlong_punishment(completion_ids, L_max, L_cache, **kwargs):
     # taken from https://github.com/huggingface/trl/issues/3130
     rewards = []
     for ids in completion_ids:
         completion_length = len(ids)
-        if completion_length <= DAPO_ARGS["L_max"] - DAPO_ARGS["L_cache"]:
+        if completion_length <= L_max - L_cache:
             rewards.append(0.0)
-        elif DAPO_ARGS["L_max"] - DAPO_ARGS["L_cache"] < completion_length <= DAPO_ARGS["L_max"]:
-            rewards.append((DAPO_ARGS["L_max"] - DAPO_ARGS["L_cache"] - completion_length) / DAPO_ARGS["L_cache"])
+        elif L_max - L_cache < completion_length <= L_max:
+            rewards.append((L_max - L_cache - completion_length) / L_cache)
         else:
             rewards.append(-1.0)
     return rewards
