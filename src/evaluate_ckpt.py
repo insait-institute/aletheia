@@ -218,7 +218,7 @@ def main(args):
     # Create filename with timestamp
     random_id = str(uuid.uuid4())[:8]
     pkl_filename = Path(__file__).parent / f"outputs/detailed_{random_id}.pkl"
-    csv_filename = Path(__file__).parent / "outputs/eval_results_list.csv"
+    csv_filename = Path(__file__).parent / "outputs/eval_results_list_16.csv"
     pkl_filename.parent.mkdir(parents=True, exist_ok=True)
     # Save completions to pickle file
 
@@ -231,8 +231,8 @@ def main(args):
                 "K": args.K,
                 "data": args.data,
                 "max_tokens": args.max_tokens,
-                "SC_accuracy": f"{sc_accuracy:.4f}",
-                "BoN_accuracy": f"{bon_accuracy:.4f}" if bon_values else "N/A",
+                "SC_accuracy": f"{sc_accuracy * 100:.2f}",
+                "BoN_accuracy": f"{bon_accuracy * 100:.2f}" if bon_values else "N/A",
                 "results_pkl_file": pkl_filename.name,
             }
         )
