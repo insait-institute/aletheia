@@ -1,6 +1,6 @@
 # @package _global_
 data:
-    train: CodeShield/CerebRM-Dataset
+    train: train.parquet
     val: null
 grpo_params:
     beta: 1e-3
@@ -37,6 +37,3 @@ gen_params:
 
 wandb_params:
     log_level: info
-
-grpo_reward_type: null
-grpo_use_lora: false

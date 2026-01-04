@@ -3,15 +3,15 @@ import os
 from pathlib import Path
 
 import hydra
+import wandb
+from configs.schema import Config
 from datasets import Dataset, load_dataset
 from kernels import has_kernel
 from omegaconf import OmegaConf
 from transformers import AutoTokenizer
-from trl import DPOConfig, DPOTrainer
-
-import wandb
-from configs.schema import Config
 from utils import maybe_resume_training
+
+from trl import DPOConfig, DPOTrainer
 
 wandb.login()
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -20,8 +20,8 @@ log.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 log.addHandler(ch)
-os.environ["WANDB_ENTITY"] = "CodeShield"
-os.environ["WANDB_PROJECT"] = "CerebRM-DPO"
+os.environ["WANDB_ENTITY"] = "Aletheia"
+os.environ["WANDB_PROJECT"] = "Think-DPO"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
 
@@ -89,9 +89,6 @@ def train_model(
         report_to="wandb",
         run_name=wandb_run_name,
         # Saving parameters
-        hub_model_id=f"wetsoledrysoul/{wandb_run_name}",
-        hub_private_repo=True,
-        hub_strategy="end",
         save_strategy="steps",
         save_steps=cfg.dpo_params.save_steps,
         # Data parameters
@@ -110,7 +107,7 @@ def train_model(
 
     trainer = DPOTrainer(model=model_name, ref_model=model_name, args=config, train_dataset=data, processing_class=tokenizer)
     trainer.train(resume_from_checkpoint=maybe_resume_training(config.output_dir))
-    trainer.push_to_hub()
+    trainer.save_pretrained(output_dir)
 
 
 def does_file_exist(file: Path) -> bool:
@@ -124,12 +121,12 @@ def main(cfg: Config):
     output_dir = Path(f"{os.getenv('WORK')}/dpo_output/{wandb_run_name}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if all([does_file_exist(output_dir / "intermediate_checkpoints" / x) for x in ["tokenizer.json", "config.json", "model.safetensors.index.json", "generation_config.json"]]):
-        log.info(f"dpo training files are already present in {output_dir}. Skipping.")
-        return None
-
     log.info(f"Config: {OmegaConf.to_yaml(OmegaConf.structured(cfg))}")
-    train_data = load_dataset(cfg.data.train)["train"]
+    if cfg.data.train.endswith("parquet"):
+        train_data = load_dataset("parquet", data_files=cfg.data.train)["train"]
+    else:
+        train_data = load_dataset(cfg.data.train)["train"]
+
     train_data = train_data.map(conv_to_dpo_format, num_proc=NUM_WORKERS, desc="Converting to DPO format")
     train_data = train_data.shuffle(seed=cfg.dpo_params.seed)
     log.info(f"Training {cfg.dpo_params.model_path} on {len(train_data)} examples")

@@ -52,53 +52,6 @@ class GenParams:
 
 
 @dataclass
-class RESTEMParams:
-    batch_size: int = None
-    deepspeed_config_path: str = None
-    gradient_accumulation_steps: int = None
-    learning_rate: float = None
-    logging_steps: int = None
-    lr_scheduler_kwargs: dict = None
-    lr_scheduler_type: str = None
-    max_length: int = None
-    model_path: str = None
-    num_epochs: int = None
-    overwrite_output_dir: bool = None
-    save_steps: float = None
-    seed: int = None
-    use_bf16: bool = None
-    warmup_ratio: float = None
-    weight_decay: float = None
-    num_generations: int = None
-    gen_dp_size: int = None
-    max_samples_to_keep: int = None
-    stage1_num_saves: int = None
-    pad_token_id: int = None
-
-
-@dataclass
-class STaRParams:
-    batch_size: int = None
-    deepspeed_config_path: str = None
-    gradient_accumulation_steps: int = None
-    learning_rate: float = None
-    logging_steps: int = None
-    lr_scheduler_kwargs: dict = None
-    lr_scheduler_type: str = None
-    max_length: int = None
-    model_path: str = None
-    num_epochs: int = None
-    overwrite_output_dir: bool = None
-    save_steps: float = None
-    seed: int = None
-    use_bf16: bool = None
-    warmup_ratio: float = None
-    weight_decay: float = None
-    gen_dp_size: int = None
-    pad_token_id: int = None
-
-
-@dataclass
 class DPOParams:
     learning_rate: float = None
     beta: float = None
@@ -120,27 +73,6 @@ class DPOParams:
 
 
 @dataclass
-class GenRMParams:
-    batch_size: int = None
-    deepspeed_config_path: str = None
-    gradient_accumulation_steps: int = None
-    learning_rate: float = None
-    logging_steps: int = None
-    lr_scheduler_kwargs: dict = None
-    lr_scheduler_type: str = None
-    max_length: int = None
-    model_path: str = None
-    num_epochs: int = None
-    overwrite_output_dir: bool = None
-    save_steps: float = None
-    seed: int = None
-    use_bf16: bool = None
-    warmup_ratio: float = None
-    weight_decay: float = None
-    pad_token_id: int = None
-
-
-@dataclass
 class WandbParams:
     log_level: str = None
 
@@ -150,14 +82,5 @@ class Config:
     data: Optional[Data] = field(default_factory=Data)
     gen_params: Optional[GenParams] = field(default_factory=GenParams)
     grpo_params: Optional[GRPOParams] = field(default_factory=GRPOParams)
-    restem_params: Optional[RESTEMParams] = field(default_factory=RESTEMParams)
-    genrm_params: Optional[GenRMParams] = field(default_factory=GenRMParams)
-    star_params: Optional[STaRParams] = field(default_factory=STaRParams)
     dpo_params: Optional[DPOParams] = field(default_factory=DPOParams)
     wandb_params: Optional[WandbParams] = field(default_factory=WandbParams)
-    grpo_reward_type: Optional[str] = None
-    grpo_use_lora: Optional[bool] = None
-    restem_stage: Optional[int] = None
-    restem_episode: Optional[int] = None
-    star_stage: Optional[int] = None
-    star_episode: Optional[int] = None

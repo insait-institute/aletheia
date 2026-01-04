@@ -1,13 +1,7 @@
 **/__pycache__
 **/.vscode
-mambafpcox5lxznt
 **/*output*
 **/test.py
 **/wandb
 **/flops_profile*
-**/cleanup.py
 **/.cache
-**/data
-**/grpo.py
-goldilocks/
-src/push_to_hub.py
