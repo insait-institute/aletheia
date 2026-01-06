@@ -1,8 +1,15 @@
-# Aletheia: Ablating the Success of RLVR for Code Verifiers
+# Aletheia: What Makes RLVR For Code Verifiers Tick?
 
-> **Abstract:** Verifiers are a prominent fixture of the Large Language Model (LLM) post-training pipeline owing to their ability to guide policy model outputs. Recently, verifiers have repurposed the generative capabilities of pretrained models in a manner that can be scaled with inference compute. Recent work has converged on leveraging Reinforcement Learning from Verifiable Rewards (RLVR) to train robust multi-domain generative verifiers. While possessing a demonstrably high performance ceiling, this recipe imposes exacting demands on training infrastructure and data collection pipelines. Moreover, these methods have not yet been applied to verifiers for code generation. To this end, we create **Aletheia**, a testbed that enables reliable, execution-grounded evaluation of coding verifiers across a vast array of policy models, difficulty levels, and adversarial settings. We ablate the prevalent RLVR-based verifier training recipe along three axes widely credited for its success: (1) Generating intermediate ``thinking'' traces, (2) learning from negative samples, and (3) on-policy training. While our experiments across three model scales and disparate out-of-domain generalization settings show that all the constituent components of the RLVR positively contribute to its final performance, we uncover important opportunities to simplify the recipe. Particularly, while the verification task demonstrates consistently strong training- and inference-time scaling trends, on-policy learning stands out as the crucial component at smaller verifier sizes, and thinking-based training emerges as the most important component at larger scales.
+> **Abstract:** Multi-domain thinking verifiers trained via Reinforcement Learning from Verifiable Rewards (RLVR) are a prominent fixture of the Large Language Model (LLM) post-training pipeline, owing to their ability to robustly rate and rerank model outputs. 
+However, the adoption of such verifiers towards code generation has been comparatively sparse, with execution feedback constituting the dominant signal. Nonetheless, code verifiers remain valuable toward judging model outputs in scenarios where execution feedback is hard to obtain and are a potentially powerful addition to the code generation post-training toolbox. To this end, we create and open-source **Aletheia**, a controlled testbed that enables execution-grounded evaluation of code verifiers' robustness across disparate policy models and covariate shifts. We examine components of the RLVR-based verifier training recipe widely credited for its success: (1) intermediate thinking traces, (2) learning from negative samples, and (3) on-policy training. While experiments show the optimality of RLVR, we uncover important opportunities to simplify the recipe. Particularly, despite code verification being amenable to training- and inference-time scaling, on-policy learning stands out as the key component at smaller verifier sizes, and thinking-based training emerges as the most important component at larger scales.
 
 ## Getting Started
+Ensure you have git-lfs installed and initialized before cloning the repository.
+```
+git lfs install
+```
+
+To setup the environment, simply run
 ```bash
 python -m venv .venv
 source .venv/bin/activate
