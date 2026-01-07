@@ -19,7 +19,7 @@
 ## Key Features
 
 - 🔬 **Controlled Testbed**: Execution-grounded evaluation across disparate policy models and covariate shifts
-- 🧠 **Multiple Training Methods**: GRPO-Think, GRPO-Instruct, and ThinkDPO implementations
+- 🧠 **Multiple Training Methods**: GRPO-Think, GRPO-Instruct, and DPO-Think implementations
 - 📊 **Comprehensive Evaluation**: Evaluation scripts for the Aletheia benchmark datasets
 - 📦 **Model Zoo**: Fine-tuned verifiers at 1.5B, 7B, and 14B scales
 
@@ -57,7 +57,7 @@ Multi-domain thinking verifiers trained via Reinforcement Learning from Verifiab
 
 ## 🏋️ Training
 
-We provide training scripts for three different methods: **GRPO**, **GRPO-Instruct**, and **ThinkDPO**. All methods support three model sizes: `1_5b`, `7b`, and `14b`. We make our trained models available on [HuggingFace](https://huggingface.co/Aletheia-Bench). 
+We provide training scripts for three different methods: **GRPO**, **GRPO-Instruct**, and ****. All methods support three model sizes: `1_5b`, `7b`, and `14b`. We make our trained models available on [HuggingFace](https://huggingface.co/Aletheia-Bench). 
 
 ### GRPO (Group Relative Policy Optimization)
 
@@ -92,7 +92,7 @@ accelerate launch \
   gen_params.max_completion_length=${b_tr}
 ```
 
-### ThinkDPO
+### DPO-Think
 
 Direct Preference Optimization with thinking traces:
 
