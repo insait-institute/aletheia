@@ -59,7 +59,7 @@ Multi-domain thinking verifiers trained via Reinforcement Learning from Verifiab
 
 We provide training scripts for three different methods: **GRPO**, **GRPO-Instruct**, and **DPO-Think**. All methods support three model sizes: `1_5b`, `7b`, and `14b`. We make our trained models available on [HuggingFace](https://huggingface.co/Aletheia-Bench). 
 
-### GRPO (Group Relative Policy Optimization)
+### GRPO-Think
 
 Standard GRPO training with thinking traces:
 
@@ -113,8 +113,6 @@ Evaluate trained models on the Aletheia benchmark datasets using the provided ev
 
 ```bash
 cd src
-
-# Basic evaluation
 python evaluate.py \
   --eval_llm /path/to/checkpoint \
   --dataset Heldout \
@@ -125,7 +123,7 @@ python evaluate.py \
 
 The evaluation script generates K responses and calculates:
 - **SC Accuracy**: The self consistency accuracy. A model is correct for a given prompt if it generates the correct answer most of the time (majority voting) across K responses.
-- **BoN Accuracy**: The best of N accuracy. A model is correct for a given prompt if it generates the correct answer at-least once across N responses.
+- **BoN Accuracy**: The best of N accuracy. A model is correct for a given prompt if it generates the correct answer at least once across N responses.
 ---
 
 ## 🎁 Datasets
@@ -198,10 +196,3 @@ This project is licensed under the CC BY-NC-SA License - see the LICENSE file fo
 ## ⚠️ Disclaimer
 
 This repository contains experimental research software and is published for the sole purpose of giving additional background details on the respective publication. Use at your own risk.
-
----
-
-
-<p align="center">
-  Made with ❤️ by the Aletheia Team
-</p> 
