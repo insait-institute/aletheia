@@ -58,7 +58,7 @@ def _create_prompts(example, model_name):
 
 
 def main(args):
-    data = load_dataset(f"wetsoledrysoul/Aletheia-{args.data}", split="test")
+    data = load_dataset(f"Aletheia-Bench/Aletheia-{args.data}", split="test")
     data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
 
     prompts = list(data["prompt"])
