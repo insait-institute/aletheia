@@ -1,0 +1,115 @@
+import argparse
+import logging
+import os
+import re
+import statistics
+from typing import List
+
+from datasets import load_dataset
+from prompts import LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
+from utils import run_inference
+
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+
+
+def extract_boxed_contents_list(text: str) -> List[int]:
+    """
+    Extracts all contents within \\boxed{...} from a given text string,
+    after normalizing braces.
+    """
+    pattern = r"\\boxed\{(.*?)\}"
+    matches = re.search(pattern, text)
+    try:
+        matches = matches.group(1)
+    except Exception:
+        matches = None
+    return matches
+
+
+def _create_prompts(example, model_name):
+    potential_answers = ["A", "B", "C", "D", "E"][: example["num_candidates"]]
+    candidates = [f"[CANDIDATE_{i}]\n```{example['language']}\n{candidate}\n```\n[/CANDIDATE_{i}]" for i, candidate in zip(potential_answers, example["candidates"])]
+    candidate_str = "\n\n".join(candidates)
+    valid_options = ", ".join(potential_answers)
+    if "Instruct" in model_name:
+        example["prompt"] = [
+            {"role": "system", "content": LIST_REWARD_PROMPT_COT.format(valid_options=", ".join(potential_answers))},
+            {
+                "role": "user",
+                "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
+            },
+        ]
+    else:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LIST_REWARD_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=valid_options,
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},
+        ]
+    return example
+
+
+def main(args):
+    data = load_dataset(f"wetsoledrysoul/Aletheia-{args.data}", split="test")
+    data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
+
+    prompts = list(data["prompt"])
+    completions = run_inference(
+        prompts,
+        args.eval_llm,
+        temperature=0.6,
+        max_tokens=args.max_tokens,
+        max_model_len=args.max_tokens + 4096,
+        dp_size=1,
+        top_p=0.95,
+        n=args.K,
+        gpu_memory_utilization=0.95,
+    )
+    completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
+
+    model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
+
+    accuracies = []
+    for correct_ans, answers in zip(data["chosen_answer"], model_answers):
+        if len(answers) == 1:
+            accuracies.append({"SC": 1 if answers[0] == correct_ans else 0, "BoN": None})
+        else:
+            sc_ans = statistics.mode(answers)
+            bon_ans = 1 if correct_ans in answers else 0
+            accuracies.append({"SC": 1 if sc_ans == correct_ans else 0, "BoN": bon_ans})
+
+    log.info(f"{args.eval_llm} accuracy")
+    for metric in ["SC", "BoN"]:
+        metric_values = [x[metric] for x in accuracies if x[metric] is not None]
+        if metric_values:
+            log.info(f"{metric}: = {sum(metric_values) / len(metric_values):.4f}")
+    # Create a CSV file with results
+
+    # Calculate overall metrics
+    sc_values = [x["SC"] for x in accuracies if x["SC"] is not None]
+    bon_values = [x["BoN"] for x in accuracies if x["BoN"] is not None]
+
+    sc_accuracy = sum(sc_values) / len(sc_values) if sc_values else 0
+    bon_accuracy = sum(bon_values) / len(bon_values) if bon_values else 0
+    # Create filename with timestamp
+
+    print(f"Self consistency accuracy for {args.eval_llm} at K={args.K} on {args.data}: {sc_accuracy}")
+    print(f"Best of N accuracy for {args.eval_llm} at K={args.K} on {args.data}: {bon_accuracy}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
+    parser.add_argument("--data", type=str, required=True, choices=["Heldout", "Strong", "Hard", "Adv"], help="Dataset to use for evaluation")
+    parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
+    parser.add_argument("--max_tokens", type=int, default=16384, help="Maximum number of tokens to generate")
+    args = parser.parse_args()
+    main(args)
