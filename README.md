@@ -116,17 +116,9 @@ cd src
 
 # Basic evaluation
 python evaluate.py \
-  --model_path /path/to/checkpoint \
-  --dataset aletheia \
-  --output_dir ./results
-
-# Evaluation with specific configurations
-python evaluate.py \
-  --model_path /path/to/checkpoint \
-  --dataset aletheia \
-  --batch_size 16 \
-  --max_samples 1000 \
-  --output_dir ./results
+  --eval_llm /path/to/checkpoint \
+  --dataset Heldout \
+  --K 16 \
 ```
 
 ### Evaluation Metrics
