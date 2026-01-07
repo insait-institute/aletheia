@@ -185,11 +185,11 @@ aletheia/
 If you find this work useful, please cite our paper:
 
 ```bibtex
-@article{aletheia2024,
+@article{aletheia2025,
   title={Aletheia: What Makes RLVR For Code Verifiers Tick?},
   author={Venkatkrishna, Vatsal and Paul, Indraneil and Gurevych, Iryna},
   journal={arXiv preprint},
-  year={2024}
+  year={2025}
 }
 ```
 
@@ -197,20 +197,9 @@ If you find this work useful, please cite our paper:
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions! Please feel free to:
-
-- Report bugs and issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
-
----
-
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the CC BY-NC-SA License - see the LICENSE file for details.
 
 ---
 
@@ -220,11 +209,6 @@ This repository contains experimental research software and is published for the
 
 ---
 
-## 🙏 Acknowledgments
-
-We thank the open-source community and the contributors to the libraries used in this project, including PyTorch, HuggingFace Transformers, and DeepSpeed.
-
----
 
 <p align="center">
   Made with ❤️ by the Aletheia Team
