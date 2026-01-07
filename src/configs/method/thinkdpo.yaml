@@ -1,7 +1,7 @@
 # @package _global_
 
 data:
-    train: dpo.parquet
+    train: Aletheia-Bench/Aletheia-DPO
     val: null
     chat_template_path: ./dsqwen_chat_template_dpo.jinja
 

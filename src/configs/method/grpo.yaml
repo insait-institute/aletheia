@@ -1,6 +1,6 @@
 # @package _global_
 data:
-    train: train.parquet
+    train: Aletheia-Bench/Aletheia-Train
     val: null
 grpo_params:
     beta: 1e-3
