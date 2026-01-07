@@ -4,6 +4,7 @@ from typing import List
 
 import numpy as np
 
+
 def extract_boxed_contents_score10(text: str) -> List[int]:
     """
     Extracts all contents within \\boxed{...} from a given text string,
@@ -164,7 +165,7 @@ def list_reward_with_distance(completions, pass_rates, num_candidates, **kwargs)
     return rewards
 
 
-def grm_correctness_reward(completions, chosen_position, num_candidates, **kwargs):
+def listsc_correctness_reward(completions, chosen_position, num_candidates, **kwargs):
     """
     Assigns a +1 reward if the model's chosen answer matches the ground truth, and an additional +1 if the correct one is assigned a score of 10.
     Model completions consist of a "think" section followed by a boxed list of scores for each candidate.
@@ -199,7 +200,7 @@ def grm_correctness_reward(completions, chosen_position, num_candidates, **kwarg
     return rewards
 
 
-def judgelrm_content_reward(completions, pass_rates, **kwargs):
+def pairsc_content_reward(completions, pass_rates, **kwargs):
     """
     Assigns a reward based on the content of the model completions and the ground truth pass rates.
     Only valid for 2 candidates.
@@ -249,7 +250,7 @@ def judgelrm_content_reward(completions, pass_rates, **kwargs):
     return content_rewards
 
 
-def judgelrm_format_reward(completions, **kwargs):
+def pairsc_format_reward(completions, **kwargs):
     """
     Assigns a reward based on whether the model's output is correctly formatted.
     +1 if correctly formatted, -0.5 if correctly formatted but two invalid scores, else -1
@@ -273,7 +274,7 @@ def judgelrm_format_reward(completions, **kwargs):
     return format_rewards
 
 
-def grm_format_reward(completions, num_candidates, **kwargs):
+def listsc_format_reward(completions, num_candidates, **kwargs):
     """
     Assigns a reward based on whether the model's output is correctly formatted.
     0 if correctly formatted, else -1
