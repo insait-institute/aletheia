@@ -79,6 +79,23 @@ accelerate launch \
   grpo_params.max_completion_length=${b_tr}
 ```
 
+### BatchOnline-GRPO
+
+BatchOnline-GRPO training with thinking traces, syncing the policy every 4 steps:
+
+```bash
+accelerate launch \
+  --config_file=configs/deepspeed/config.yaml \
+  grpo_training.py \
+  model=grpo/${model} \
+  method=grpo \
+  grpo_params.max_completion_length=${b_tr} \
+  grpo_params.generate_every=4 \
+  grpo_params.epsilon=3e-4 \
+  grpo_params.epsilon_high=4e-4 \
+  grpo_params.importance_sampling_level=sequence
+```
+
 ### GRPO-Instruct
 
 GRPO training without thinking traces (instruction-only):
