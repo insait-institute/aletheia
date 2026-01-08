@@ -98,7 +98,7 @@ accelerate launch \
 
 ### GRPO-Instruct
 
-GRPO training without thinking traces (instruction-only):
+GRPO training without thinking traces  (short chain-of-thought prompting):
 
 ```bash
 accelerate launch \
