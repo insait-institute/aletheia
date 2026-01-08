@@ -206,7 +206,7 @@ If you find this work useful, please cite our paper:
 
 ## 📄 License
 
-This project is licensed under the CC BY-NC-SA License - see the LICENSE file for details.
+This project is licensed under the CC BY-NC-SA 4.0 License - see the LICENSE file for details.
 
 ---
 
