@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <a href="arxiv.org"><img src="https://img.shields.io/badge/arXiv-Coming%20Soon-b31b1b.svg" alt="arXiv"></a>
+  <a href="https://arxiv.org/abs/2601.12186"><img src="https://img.shields.io/badge/arXiv-2601.12186-b31b1b.svg" alt="arXiv"></a>
   <a href="https://huggingface.co/datasets/Aletheia-Bench"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Aletheia-yellow?style=flat" alt="HuggingFace"></a>
   <a href="#"><img src="https://img.shields.io/badge/Python-3.12-blue.svg" alt="Python 3.12"></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-CC BY--NC--SA 4.0-green.svg" alt="License"></a>
@@ -192,11 +192,14 @@ aletheia/
 If you find this work useful, please cite our paper:
 
 ```bibtex
-@article{aletheia2025,
-  title={Aletheia: What Makes RLVR For Code Verifiers Tick?},
-  author={Venkatkrishna, Vatsal and Paul, Indraneil and Gurevych, Iryna},
-  journal={arXiv preprint},
-  year={2025}
+@misc{venkatkrishna2026aletheiamakesrlvrcode,
+      title={Aletheia: What Makes RLVR For Code Verifiers Tick?}, 
+      author={Vatsal Venkatkrishna and Indraneil Paul and Iryna Gurevych},
+      year={2026},
+      eprint={2601.12186},
+      archivePrefix={arXiv},
+      primaryClass={cs.SE},
+      url={https://arxiv.org/abs/2601.12186}, 
 }
 ```
 
