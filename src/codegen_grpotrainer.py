@@ -206,19 +206,28 @@ class CodegenGRPOTrainer(GRPOTrainer):
             cand_wins = (verdict == "A" and ordering == "AB") or (verdict == "B" and ordering == "BA")
             win_counts[(g, i)] = win_counts.get((g, i), 0) + (1 if cand_wins else 0)
 
-        advantages = torch.zeros(n, dtype=torch.float32, device=device)
+        rewards = torch.zeros(n, dtype=torch.float32, device=device)
         for (g, i), wins in win_counts.items():
-            advantages[g * G + i] = 1.0 if wins == rounds_per_cand else -1.0
-        # Reference rollouts (one per group) keep advantage = 0.
+            rewards[g * G + i] = 1.0 if wins == rounds_per_cand else -1.0
+        # Reference rollouts (one per group) keep R = 0.
 
-        adv_grp = advantages.view(n_groups, G)
-        skew = adv_grp.sum(dim=1).abs() / G
+        # BRPO: A_i = R_i directly. The filter zeros out skewed groups so they
+        # contribute no gradient, but the underlying verifier signal lives in
+        # `rewards`; we log both for clarity.
+        rewards_grp = rewards.view(n_groups, G)
+        skew = rewards_grp.sum(dim=1).abs() / G
         keep = (skew <= self.brpo_filter_threshold).float().unsqueeze(1)
-        adv_grp = adv_grp * keep
+        adv_grp = rewards_grp * keep
 
         mode = "train" if self.model.training else "eval"
+        # Win rate excludes the reference (which has R=0 by construction):
+        # `n_groups` slots per step are references, so the divisor is n - n_groups.
+        n_cands = n - n_groups
+        n_wins = (rewards_grp > 0).sum().item()
+        self._metrics[mode]["rewards/brpo/win_rate"].append(n_wins / max(1, n_cands))
+        self._metrics[mode]["rewards/brpo/mean"].append(rewards_grp.sum().item() / max(1, n_cands))
+        self._metrics[mode]["brpo/advantage_mean"].append(adv_grp.mean().item())
         self._metrics[mode]["brpo/groups_dropped_frac"].append(1.0 - keep.mean().item())
-        self._metrics[mode]["brpo/mean_preference"].append(adv_grp.mean().item())
         self._metrics[mode]["brpo/mean_abs_skew"].append(skew.mean().item())
 
         return adv_grp.view(-1)
