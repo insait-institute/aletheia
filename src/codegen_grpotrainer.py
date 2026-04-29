@@ -20,6 +20,7 @@ Bootstrapped Relative Policy Optimization (BRPO) recipe from Writing-Zero
 
 import logging
 import os
+import pickle
 import random
 import re
 from dataclasses import dataclass, field
@@ -194,7 +195,8 @@ class CodegenGRPOTrainer(GRPOTrainer):
                     spec_meta.append((g, i, "BA"))
 
         verdicts = self._batched_judge(judge_prompts)
-
+        with open("latest_judge_verdicts.pkl", "wb") as f:
+            pickle.dump((spec_meta, verdicts), f)
         # Aggregate: a candidate wins a condition if the verifier picks it
         # (i.e. "A" under AB ordering, "B" under BA ordering). Require all
         # 2 * voting conditions to be wins for R_i = +1.
