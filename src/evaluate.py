@@ -1,18 +1,39 @@
 import argparse
+import ast
+import csv
 import logging
 import os
+import random
 import re
 import statistics
+import uuid
+from pathlib import Path
 from typing import List
 
 from datasets import load_dataset
-from prompts import LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT
+from prompts import LIST_REWARD_PROMPT, LIST_REWARD_PROMPT_COT, LISTSC_PROMPT, PAIRSC_PROMPT
 from utils import run_inference
 
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 NUM_WORKERS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+
+
+def extract_boxed_contents_score10(text: str) -> List[int]:
+    """
+    Extracts all contents within \\boxed{...} from a given text string,
+    after normalizing braces.
+    """
+    # Match \boxed{...} with non-greedy content
+    pattern = r"\\boxed\{(.*?)\}"
+    matches = re.search(pattern, text)
+    try:
+        matches = ast.literal_eval(matches.group(1))
+        assert isinstance(matches, list) and all(isinstance(x, int) for x in matches)
+    except Exception:
+        matches = []
+    return matches
 
 
 def extract_boxed_contents_list(text: str) -> List[int]:
@@ -24,9 +45,53 @@ def extract_boxed_contents_list(text: str) -> List[int]:
     matches = re.search(pattern, text)
     try:
         matches = matches.group(1)
+        if "[[" in matches:
+            matches = matches.split("[[")[1].split("]]")[0]
     except Exception:
         matches = None
     return matches
+
+
+def _create_prompts_pair(example, model_name):
+    model_name = model_name.lower()
+    example["chosen_answer"] = "A"
+    lang = example["language"].lower().replace("++", "pp")
+    candidate_str = f"[CANDIDATE_A]\n```{lang}\n{example['chosen']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{lang}\n{example['rejected']}\n```\n[/CANDIDATE_B]"
+    if random.random() > 0.5:
+        example["chosen_answer"] = "B"
+        candidate_str = f"[CANDIDATE_A]\n```{lang}\n{example['rejected']}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{lang}\n{example['chosen']}\n```\n[/CANDIDATE_B]"
+
+    PROMPT = LIST_REWARD_PROMPT
+    valid_options = "A, B"
+
+    if "judge_lrm" in model_name:
+        PROMPT = PAIRSC_PROMPT
+        valid_options = None
+    elif "grm" in model_name:
+        PROMPT = LISTSC_PROMPT
+        valid_options = None
+    if valid_options:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                    valid_options=valid_options,
+                ).strip(),
+            },
+        ]
+    else:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+        ]
+    return example
 
 
 def _create_prompts(example, model_name):
@@ -41,6 +106,28 @@ def _create_prompts(example, model_name):
                 "role": "user",
                 "content": f"Here is the coding question followed by the candidate solutions:\n[QUESTION]\n{example['query']}\n[/QUESTION]\n\n{candidate_str}\n\nYour response should be exactly in the specified format, without any extra characters or spaces. Anything else will be considered invalid.",
             },
+        ]
+    elif "lrm" in model_name:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": PAIRSC_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},
+        ]
+    elif "grm" in model_name:
+        example["prompt"] = [
+            {
+                "role": "user",
+                "content": LISTSC_PROMPT.format(
+                    question=example["query"],
+                    candidates=candidate_str,
+                ).strip(),
+            },
+            {"role": "assistant", "content": "<think>\n"},
         ]
     else:
         example["prompt"] = [
@@ -57,10 +144,20 @@ def _create_prompts(example, model_name):
     return example
 
 
+def interpret_scores(scores: List[int], num_candidates) -> str:
+    possible_answers = ["A", "B", "C", "D", "E"][:num_candidates]
+    if len(scores) != num_candidates:
+        return "Invalid"  # Indeterminate if we don't have exactly two scores
+    max_score = max(scores)
+    if scores.count(max_score) > 1:
+        return "Invalid"  # Indeterminate if there's a tie
+    return possible_answers[scores.index(max_score)]
+
+
 def main(args):
     data = load_dataset(f"Aletheia-Bench/Aletheia-{args.data}", split="test")
+    data = data.filter(lambda x: x["num_candidates"] == 2)
     data = data.map(_create_prompts, fn_kwargs={"model_name": args.eval_llm}, num_proc=NUM_WORKERS, desc="Creating prompts")
-
     prompts = list(data["prompt"])
     completions = run_inference(
         prompts,
@@ -75,7 +172,11 @@ def main(args):
     )
     completions = [[nth_response.text for nth_response in responses.outputs] for responses in completions]
 
-    model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
+    if "lrm" in args.eval_llm or "grm" in args.eval_llm:
+        scores = [[extract_boxed_contents_score10(y) for y in x] for x in completions]
+        model_answers = [[interpret_scores(y, z) for y in x] for x, z in zip(scores, data["num_candidates"])]
+    else:
+        model_answers = [[extract_boxed_contents_list(y) for y in x] for x in completions]
 
     accuracies = []
     for correct_ans, answers in zip(data["chosen_answer"], model_answers):
@@ -101,14 +202,37 @@ def main(args):
     bon_accuracy = sum(bon_values) / len(bon_values) if bon_values else 0
     # Create filename with timestamp
 
-    print(f"Self consistency accuracy for {args.eval_llm} at K={args.K} on {args.data}: {sc_accuracy}")
-    print(f"Best of N accuracy for {args.eval_llm} at K={args.K} on {args.data}: {bon_accuracy}")
+    random_id = str(uuid.uuid4())[:8]
+    pkl_filename = Path(__file__).parent / f"outputs/detailed_{random_id}.pkl"
+    csv_filename = Path(__file__).parent / "outputs/crb_results.csv"
+    pkl_filename.parent.mkdir(parents=True, exist_ok=True)
+    # Save completions to pickle file
+
+    with open(csv_filename, "a", newline="") as csvfile:
+        fieldnames = ["eval_llm", "K", "data", "max_tokens", "SC_accuracy", "BoN_accuracy", "results_pkl_file"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writerow(
+            {
+                "eval_llm": args.eval_llm,
+                "K": args.K,
+                "data": args.data,
+                "max_tokens": args.max_tokens,
+                "SC_accuracy": f"{sc_accuracy * 100:.2f}",
+                "BoN_accuracy": f"{bon_accuracy * 100:.2f}" if bon_values else "N/A",
+                "results_pkl_file": pkl_filename.name,
+            }
+        )
+    data = data.add_column("completion", completions)
+    data = data.add_column("extracted_model_ans", model_answers)
+    data = data.to_pandas().to_pickle(pkl_filename.as_posix())
+
+    log.info(f"Results saved to {csv_filename}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--eval_llm", type=str, required=True, help="LLM to use for evaluation")
-    parser.add_argument("--data", type=str, required=True, choices=["Heldout", "Strong", "Hard", "Adv"], help="Dataset to use for evaluation")
+    parser.add_argument("--data", type=str, required=True, choices=["CRB", "Heldout", "Strong", "Hard", "Adv"], help="Dataset to use for evaluation")
     parser.add_argument("--K", type=int, default=1, help="Number of samples to generate for each prompt")
     parser.add_argument("--max_tokens", type=int, default=16384, help="Maximum number of tokens to generate")
     args = parser.parse_args()

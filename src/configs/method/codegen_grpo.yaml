@@ -1,0 +1,57 @@
+# @package _global_
+data:
+    train: Aletheia-Bench/Aletheia-Train
+    val: null
+grpo_params:
+    beta: 1e-3
+    epsilon: 0.2
+    epsilon_high: 0.28
+    eval_batch_size: 16
+    learning_rate: 1e-6
+    logging_steps: 1
+    loss_type: dapo
+    lr_scheduler_type: constant_with_warmup
+    max_prompt_length: 4096
+    num_epochs: 1
+    overwrite_output_dir: True
+    save_steps: 0.1
+    seed: 42
+    use_bf16: True
+    warmup_ratio: 0.05
+    weight_decay: 1e-2
+    kl_penalty: dynamic
+    ref_model_sync_steps: 100
+    ref_model_mixup_alpha: 1.0
+    generate_every: 1
+    importance_sampling_level: token
+    # BRPO writes advantages directly; this knob is forced to "none" inside
+    # codegen_grpotrainer.train() and is kept here only to satisfy the schema.
+    scale_rewards: none
+
+gen_params:
+    max_completion_length: 8192
+    num_generations: 16
+    temperature: 1.0
+    vllm_dtype: bfloat16
+    vllm_server_host: localhost
+    vllm_server_port: 8000
+    vllm_server_timeout: 600
+
+verifier_params:
+    # OpenAI-compatible endpoint for the trained pairwise code verifier
+    # (e.g. `vllm serve <verifier_ckpt> --port 8001`). Keep this on a
+    # different port than the policy's colocated vLLM engine.
+    base_url: http://localhost:8001/v1
+    model: ???                       # required: HF id or local path of the verifier
+    api_key: EMPTY
+    voting: 1                        # voting rounds; each round queries both A/B orderings
+    max_tokens: 4096
+    temperature: 0.6
+    concurrency: 64                  # parallel HTTP calls per training step
+    brpo_filter_threshold: 0.6       # tau_filter: drop groups where |sum R_i| / G exceeds this
+    default_language: python
+    prompt_key: query                # dataset column with the coding question
+    language_key: language           # dataset column with the target language (optional)
+
+wandb_params:
+    log_level: info
