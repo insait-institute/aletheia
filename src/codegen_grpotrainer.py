@@ -22,13 +22,11 @@ import logging
 import os
 import random
 import re
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 import hydra
 import torch
-import wandb
 from configs.schema import Config as BaseConfig
 from datasets import load_dataset
 from kernels import has_kernel
@@ -36,9 +34,10 @@ from omegaconf import OmegaConf
 from openai import OpenAI
 from prompts import LIST_REWARD_PROMPT
 from transformers import AutoTokenizer
+from trl import GRPOConfig, GRPOTrainer
 from utils import maybe_resume_training
 
-from trl import GRPOConfig, GRPOTrainer
+import wandb
 
 logging.basicConfig(level=logging.WARNING)
 log = logging.getLogger(__name__)
@@ -61,7 +60,6 @@ class VerifierParams:
     voting: int = 1
     max_tokens: int = 4096
     temperature: float = 0.6
-    concurrency: int = 64
     brpo_filter_threshold: float = 0.6
     default_language: str = "python"
     prompt_key: str = "query"
@@ -83,10 +81,7 @@ def extract_code(text: str) -> str:
 
 def build_pairwise_judge_messages(question: str, code_a: str, code_b: str, language: str) -> list:
     """Render the (N=2) listwise prompt the verifier was trained on."""
-    candidates = (
-        f"[CANDIDATE_A]\n```{language}\n{code_a}\n```\n[/CANDIDATE_A]\n\n"
-        f"[CANDIDATE_B]\n```{language}\n{code_b}\n```\n[/CANDIDATE_B]"
-    )
+    candidates = f"[CANDIDATE_A]\n```{language}\n{code_a}\n```\n[/CANDIDATE_A]\n\n[CANDIDATE_B]\n```{language}\n{code_b}\n```\n[/CANDIDATE_B]"
     content = LIST_REWARD_PROMPT.format(
         question=question,
         candidates=candidates,
@@ -127,7 +122,6 @@ class CodegenGRPOTrainer(GRPOTrainer):
         verifier_voting: int = 1,
         verifier_max_tokens: int = 4096,
         verifier_temperature: float = 0.6,
-        verifier_concurrency: int = 64,
         brpo_filter_threshold: float = 0.6,
         default_language: str = "python",
         language_key: str = "language",
@@ -139,7 +133,9 @@ class CodegenGRPOTrainer(GRPOTrainer):
         # null function that keeps gathering/logging machinery happy.
         kwargs.setdefault("reward_funcs", [self._null_reward_func])
         super().__init__(*args, **kwargs)
-        self.verifier_client = OpenAI(base_url=verifier_base_url, api_key=verifier_api_key)
+        # Long timeout: a single batched call covers the whole local step's
+        # judge prompts, and large groups (G * voting * 2) can take a while.
+        self.verifier_client = OpenAI(base_url=verifier_base_url, api_key=verifier_api_key, timeout=600.0)
         self.verifier_model = verifier_model
         self.verifier_voting = max(1, int(verifier_voting))
         self.verifier_max_tokens = verifier_max_tokens
@@ -148,37 +144,18 @@ class CodegenGRPOTrainer(GRPOTrainer):
         self.default_language = default_language
         self.language_key = language_key
         self.prompt_key = prompt_key
-        self._verifier_executor = ThreadPoolExecutor(max_workers=verifier_concurrency)
+        # Verifier tokenizer applies its chat template client-side so we can
+        # drop down to /v1/completions and submit every judge prompt in one
+        # batched HTTP request (vLLM continuous-batches them server-side).
+        self.verifier_tokenizer = AutoTokenizer.from_pretrained(verifier_model)
 
     @staticmethod
     def _null_reward_func(prompts, completions, **kwargs):
         return [0.0] * len(completions)
 
-    def _query_judge_once(self, question: str, code_a: str, code_b: str, language: str) -> Optional[str]:
-        try:
-            messages = build_pairwise_judge_messages(question, code_a, code_b, language)
-            resp = self.verifier_client.chat.completions.create(
-                model=self.verifier_model,
-                messages=messages,
-                max_tokens=self.verifier_max_tokens,
-                temperature=self.verifier_temperature,
-            )
-            return parse_judge_verdict(resp.choices[0].message.content)
-        except Exception as exc:
-            log.warning(f"Verifier call failed: {exc}")
-            return None
-
-    def _judge_pair(self, question: str, code_cand: str, code_ref: str, language: str) -> int:
-        """+1 iff the verifier prefers ``code_cand`` over ``code_ref`` in every
-        voting condition (each voting round queries both A/B orderings to
-        debias position). Otherwise -1.
-        """
-        for _ in range(self.verifier_voting):
-            v_ab = self._query_judge_once(question, code_cand, code_ref, language)
-            v_ba = self._query_judge_once(question, code_ref, code_cand, language)
-            if not (v_ab == "A" and v_ba == "B"):
-                return -1
-        return 1
+    def _render_judge_prompt(self, question: str, code_a: str, code_b: str, language: str) -> str:
+        messages = build_pairwise_judge_messages(question, code_a, code_b, language)
+        return self.verifier_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
     def _compute_brpo_advantages(
         self,
@@ -193,52 +170,88 @@ class CodegenGRPOTrainer(GRPOTrainer):
         n_groups = n // G
 
         codes = [extract_code(t) for t in completions_text]
-        pair_specs = []  # (group_idx, local_idx, question, lang, cand_code, ref_code)
-        ref_indices = []
+        # For every (group, candidate, voting_round, A/B ordering) emit one
+        # judge prompt. A candidate only earns +1 if it wins all 2 * voting
+        # conditions, so we expand to that fan-out up front and parse back.
+        judge_prompts: List[str] = []
+        spec_meta: List[tuple] = []  # (group, candidate, ordering)  ordering: "AB" | "BA"
         for g in range(n_groups):
             start = g * G
             ref_idx = random.randrange(G)
-            ref_indices.append(ref_idx)
             ref_code = codes[start + ref_idx]
             question = queries[start + ref_idx]
             language = languages[start + ref_idx] or self.default_language
             for i in range(G):
                 if i == ref_idx:
                     continue
-                pair_specs.append((g, i, question, language, codes[start + i], ref_code))
+                cand_code = codes[start + i]
+                prompt_ab = self._render_judge_prompt(question, cand_code, ref_code, language)
+                prompt_ba = self._render_judge_prompt(question, ref_code, cand_code, language)
+                for _ in range(self.verifier_voting):
+                    judge_prompts.append(prompt_ab)
+                    spec_meta.append((g, i, "AB"))
+                    judge_prompts.append(prompt_ba)
+                    spec_meta.append((g, i, "BA"))
 
-        futures = [
-            self._verifier_executor.submit(self._judge_pair, q, ca, cr, lang)
-            for (_, _, q, lang, ca, cr) in pair_specs
-        ]
+        verdicts = self._batched_judge(judge_prompts)
+
+        # Aggregate: a candidate wins a condition if the verifier picks it
+        # (i.e. "A" under AB ordering, "B" under BA ordering). Require all
+        # 2 * voting conditions to be wins for R_i = +1.
+        rounds_per_cand = self.verifier_voting * 2
+        win_counts: dict = {}
+        for (g, i, ordering), verdict in zip(spec_meta, verdicts):
+            cand_wins = (verdict == "A" and ordering == "AB") or (verdict == "B" and ordering == "BA")
+            win_counts[(g, i)] = win_counts.get((g, i), 0) + (1 if cand_wins else 0)
 
         advantages = torch.zeros(n, dtype=torch.float32, device=device)
-        for (g, i, *_), fut in zip(pair_specs, futures):
-            advantages[g * G + i] = float(fut.result())
-        # advantages[ref_idx within each group] stays 0 by construction.
+        for (g, i), wins in win_counts.items():
+            advantages[g * G + i] = 1.0 if wins == rounds_per_cand else -1.0
+        # Reference rollouts (one per group) keep advantage = 0.
 
         adv_grp = advantages.view(n_groups, G)
         skew = adv_grp.sum(dim=1).abs() / G
         keep = (skew <= self.brpo_filter_threshold).float().unsqueeze(1)
         adv_grp = adv_grp * keep
 
-        # Logging: fraction of groups dropped by the BRPO filter, mean preference.
         mode = "train" if self.model.training else "eval"
-        dropped_frac = 1.0 - keep.mean().item()
-        self._metrics[mode]["brpo/groups_dropped_frac"].append(dropped_frac)
+        self._metrics[mode]["brpo/groups_dropped_frac"].append(1.0 - keep.mean().item())
         self._metrics[mode]["brpo/mean_preference"].append(adv_grp.mean().item())
         self._metrics[mode]["brpo/mean_abs_skew"].append(skew.mean().item())
 
         return adv_grp.view(-1)
+
+    def _batched_judge(self, judge_prompts: List[str]) -> List[Optional[str]]:
+        """Send every judge prompt in a single /v1/completions call so vLLM
+        can continuous-batch them, returning per-prompt verdicts ('A'/'B'/None).
+        """
+        if not judge_prompts:
+            return []
+        try:
+            resp = self.verifier_client.completions.create(
+                model=self.verifier_model,
+                prompt=judge_prompts,
+                max_tokens=self.verifier_max_tokens,
+                temperature=self.verifier_temperature,
+                n=1,
+            )
+        except Exception as exc:
+            log.warning(f"Batched verifier call failed; treating as no-preference: {exc}")
+            return [None] * len(judge_prompts)
+        # OpenAI returns one Choice per prompt with `index` matching the input
+        # ordering; reorder defensively in case the server doesn't preserve it.
+        verdicts: List[Optional[str]] = [None] * len(judge_prompts)
+        for choice in resp.choices:
+            if 0 <= choice.index < len(verdicts):
+                verdicts[choice.index] = parse_judge_verdict(choice.text)
+        return verdicts
 
     def _generate_and_score_completions(self, inputs):
         output = super()._generate_and_score_completions(inputs)
 
         # ``inputs`` is already expanded to (per_device_batch * num_generations)
         # by the repeat sampler, so positions align 1:1 with completion_ids.
-        completions_text = self.processing_class.batch_decode(
-            output["completion_ids"], skip_special_tokens=True
-        )
+        completions_text = self.processing_class.batch_decode(output["completion_ids"], skip_special_tokens=True)
         queries = [ex[self.prompt_key] for ex in inputs]
         languages = [ex.get(self.language_key, self.default_language) for ex in inputs]
 
@@ -370,7 +383,6 @@ def train(cfg: Config):
         verifier_voting=cfg.verifier_params.voting,
         verifier_max_tokens=cfg.verifier_params.max_tokens,
         verifier_temperature=cfg.verifier_params.temperature,
-        verifier_concurrency=cfg.verifier_params.concurrency,
         brpo_filter_threshold=cfg.verifier_params.brpo_filter_threshold,
         default_language=cfg.verifier_params.default_language,
         language_key=cfg.verifier_params.language_key,

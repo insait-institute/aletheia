@@ -1,6 +1,6 @@
 # @package _global_
 data:
-    train: Aletheia-Bench/Aletheia-Train
+    train: Aletheia-Bench/Aletheia-Train-Questions
     val: null
 grpo_params:
     beta: 1e-3
@@ -47,7 +47,6 @@ verifier_params:
     voting: 1                        # voting rounds; each round queries both A/B orderings
     max_tokens: 4096
     temperature: 0.6
-    concurrency: 64                  # parallel HTTP calls per training step
     brpo_filter_threshold: 0.6       # tau_filter: drop groups where |sum R_i| / G exceeds this
     default_language: python
     prompt_key: query                # dataset column with the coding question
