@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 from datasets import Dataset, load_dataset
 from evaluate import _create_prompts, extract_boxed_contents_list
 from utils import run_inference
@@ -26,16 +27,18 @@ def _build_pair_examples(example, idx):
         return {"pairs": []}
     pairs = []
     for i, j in itertools.combinations(range(n), 2):
-        pairs.append({
-            "list_id": idx,
-            "i": i,
-            "j": j,
-            "query": example["query"],
-            "language": example["language"],
-            "candidates": [example["candidates"][i], example["candidates"][j]],
-            "num_candidates": 2,
-            "chosen_position": example["chosen_position"],
-        })
+        pairs.append(
+            {
+                "list_id": idx,
+                "i": i,
+                "j": j,
+                "query": example["query"],
+                "language": example["language"],
+                "candidates": [example["candidates"][i], example["candidates"][j]],
+                "num_candidates": 2,
+                "chosen_position": example["chosen_position"],
+            }
+        )
     return {"pairs": pairs}
 
 
@@ -107,7 +110,7 @@ def compute_transitivity(by_list: Dict[int, Dict[Tuple[int, int], int]], list_si
 
 
 def _dcg(relevances: List[float]) -> float:
-    return sum((2.0 ** rel - 1.0) / math.log2(i + 2) for i, rel in enumerate(relevances))
+    return sum((2.0**rel - 1.0) / math.log2(i + 2) for i, rel in enumerate(relevances))
 
 
 def compute_ndcg_for_list(prefs: Dict[Tuple[int, int], int], pass_rates: List[float]) -> Optional[float]:
@@ -144,16 +147,35 @@ def compute_ndcg(
     return mean_ndcg, per_list
 
 
-def main(args):
-    raw = load_dataset(f"Aletheia-Bench/Aletheia-{args.data}", split="test")
-    raw = raw.filter(lambda x: x["num_candidates"] >= 3)
-    if args.max_lists and len(raw) > args.max_lists:
-        raw = raw.select(range(args.max_lists))
-    log.info(f"Loaded {len(raw)} lists with ≥3 candidates from Aletheia-{args.data}")
+def compute_pairwise_accuracy(records: List[dict], list_pass_rates: Dict[int, List[float]]) -> Tuple[float, int, int]:
+    correct, total = 0, 0
+    for r in records:
+        if r["winner"] is None:
+            continue
+        prs = list_pass_rates.get(r["list_id"])
+        if prs is None:
+            continue
+        i, j = r["i"], r["j"]
+        if prs[i] == prs[j]:
+            continue
+        gt_winner = i if prs[i] > prs[j] else j
+        total += 1
+        correct += int(r["winner"] == gt_winner)
+    rate = correct / total if total else 0.0
+    return rate, correct, total
 
+
+def _load_dataset_metadata(data_name: str, max_lists: int):
+    raw = load_dataset(f"Aletheia-Bench/Aletheia-{data_name}", split="test")
+    raw = raw.filter(lambda x: x["num_candidates"] >= 3)
+    if max_lists and len(raw) > max_lists:
+        raw = raw.select(range(max_lists))
     list_sizes = {i: row["num_candidates"] for i, row in enumerate(raw)}
     list_pass_rates = {i: row["pass_rates"] for i, row in enumerate(raw)}
+    return raw, list_sizes, list_pass_rates
 
+
+def _run_pairwise_inference(args, raw) -> List[dict]:
     pair_dataset = raw.map(_build_pair_examples, with_indices=True, num_proc=NUM_WORKERS, desc="Building pairs")
     pairs = _flatten_pairs(pair_dataset)
     log.info(f"Generated {len(pairs)} pairwise comparisons")
@@ -181,13 +203,44 @@ def main(args):
     for pair, req in zip(pairs, completions):
         raw_ans = extract_boxed_contents_list(req.outputs[0].text)
         winner = _interpret_answer(raw_ans, pair)
-        records.append({
-            "list_id": pair["list_id"],
-            "i": pair["i"],
-            "j": pair["j"],
-            "raw": raw_ans,
-            "winner": winner,
-        })
+        records.append(
+            {
+                "list_id": pair["list_id"],
+                "i": pair["i"],
+                "j": pair["j"],
+                "raw": raw_ans,
+                "winner": winner,
+            }
+        )
+    return records
+
+
+def main(args):
+    out_dir = Path(__file__).parent / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out_dir / "ranking_results.csv"
+    rid = str(uuid.uuid4())[:8]
+    pkl = out_dir / f"ranking_{rid}.pkl"
+
+    if args.from_pkl:
+        csv_path = out_dir / "ranking_results_revised.csv"
+        existing_results = pd.read_csv(csv_path)
+        relevant_row = existing_results[(existing_results["model"] == args.eval_llm) & (existing_results["data"] == args.data)]
+        if not relevant_row:
+            raise ValueError(f"No relevant row found in existing_results for model {args.eval_llm} and data {args.data}")
+        pkl_path = Path(relevant_row["results_pkl"])
+        log.info(f"Loading records from {pkl_path}")
+        with open(pkl_path, "rb") as f:
+            saved = pickle.load(f)
+        records = saved["records"]
+        saved_args = saved.get("args", {})
+        max_lists = args.max_lists or saved_args.get("max_lists", 0)
+        raw, list_sizes, list_pass_rates = _load_dataset_metadata(args.data, max_lists)
+        log.info(f"Reloaded {len(raw)} lists; recomputing metrics over {len(records)} stored pairwise records.")
+    else:
+        raw, list_sizes, list_pass_rates = _load_dataset_metadata(args.data, args.max_lists)
+        log.info(f"Loaded {len(raw)} lists with ≥3 candidates from Aletheia-{args.data}")
+        records = _run_pairwise_inference(args, raw)
 
     valid = sum(1 for r in records if r["winner"] is not None)
     log.info(f"Parsed {valid}/{len(records)} pairwise verdicts")
@@ -196,46 +249,67 @@ def main(args):
 
     trans_rate, total_triples, trans_triples, trans_per_list = compute_transitivity(prefs_by_list, list_sizes)
     mean_ndcg, ndcg_per_list = compute_ndcg(prefs_by_list, list_pass_rates)
+    pair_acc, pair_correct, pair_total = compute_pairwise_accuracy(records, list_pass_rates)
 
     log.info(f"Transitivity rate: {trans_rate:.4f} ({trans_triples}/{total_triples} triples)")
     log.info(f"Mean NDCG: {mean_ndcg:.4f} (over {len(ndcg_per_list)} lists)")
+    log.info(f"Pairwise accuracy: {pair_acc:.4f} ({pair_correct}/{pair_total} pairs)")
 
-    out_dir = Path(__file__).parent / "outputs"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    rid = str(uuid.uuid4())[:8]
-    pkl = out_dir / f"ranking_{rid}.pkl"
     with open(pkl, "wb") as f:
-        pickle.dump({
-            "args": vars(args),
-            "records": records,
-            "trans_per_list": trans_per_list,
-            "ndcg_per_list": ndcg_per_list,
-            "trans_rate": trans_rate,
-            "total_triples": total_triples,
-            "trans_triples": trans_triples,
-            "mean_ndcg": mean_ndcg,
-        }, f)
+        pickle.dump(
+            {
+                "args": vars(args),
+                "records": records,
+                "trans_per_list": trans_per_list,
+                "ndcg_per_list": ndcg_per_list,
+                "trans_rate": trans_rate,
+                "total_triples": total_triples,
+                "trans_triples": trans_triples,
+                "mean_ndcg": mean_ndcg,
+                "pair_acc": pair_acc,
+                "pair_correct": pair_correct,
+                "pair_total": pair_total,
+            },
+            f,
+        )
 
-    csv_path = out_dir / "ranking_results.csv"
     new_file = not csv_path.exists()
     with open(csv_path, "a", newline="") as f:
-        fieldnames = ["eval_llm", "data", "n_lists", "n_pairs", "n_valid",
-                      "n_triples", "transitive", "trans_rate", "mean_ndcg", "results_pkl"]
+        fieldnames = [
+            "eval_llm",
+            "data",
+            "n_lists",
+            "n_pairs",
+            "n_valid",
+            "n_triples",
+            "transitive",
+            "trans_rate",
+            "mean_ndcg",
+            "pair_acc",
+            "pair_correct",
+            "pair_total",
+            "results_pkl",
+        ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if new_file:
             writer.writeheader()
-        writer.writerow({
-            "eval_llm": args.eval_llm,
-            "data": args.data,
-            "n_lists": len(raw),
-            "n_pairs": len(records),
-            "n_valid": valid,
-            "n_triples": total_triples,
-            "transitive": trans_triples,
-            "trans_rate": f"{trans_rate:.4f}",
-            "mean_ndcg": f"{mean_ndcg:.4f}",
-            "results_pkl": pkl.name,
-        })
+        writer.writerow(
+            {
+                "eval_llm": args.eval_llm,
+                "data": args.data,
+                "n_lists": len(raw),
+                "n_pairs": len(records),
+                "n_valid": valid,
+                "n_triples": total_triples,
+                "transitive": trans_triples,
+                "trans_rate": f"{trans_rate:.4f}",
+                "mean_ndcg": f"{mean_ndcg:.4f}",
+                "pair_acc": f"{pair_acc:.4f}",
+                "pair_correct": pair_correct,
+                "pair_total": pair_total,
+                "results_pkl": pkl.name,
+            }
+        )
     log.info(f"Saved ranking metrics to {pkl}")
 
 
@@ -245,5 +319,6 @@ if __name__ == "__main__":
     parser.add_argument("--data", type=str, required=True, choices=["CRB", "Heldout", "Strong", "Hard", "Adv"])
     parser.add_argument("--max_tokens", type=int, default=16384)
     parser.add_argument("--max_lists", type=int, default=0, help="Limit number of lists. 0 = all.")
+    parser.add_argument("--from_pkl", type=str, action="store_true", help="Whether to load results from existing pkl files")
     args = parser.parse_args()
     main(args)
