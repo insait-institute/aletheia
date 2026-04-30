@@ -26,6 +26,7 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+import httpx
 import hydra
 import torch
 from configs.schema import Config as BaseConfig
@@ -55,13 +56,17 @@ BOXED_VERDICT_PATTERN = re.compile(r"\\boxed\{([AB])\}")
 
 @dataclass
 class VerifierParams:
+    # "generative" -> pairwise judge with BRPO advantages.
+    # "scalar"     -> reward model served at /pooling, plain group-relative GRPO.
+    type: str = "generative"
     base_url: str = "http://localhost:8001/v1"
     model: str = None
     api_key: str = "EMPTY"
-    voting: int = 1
-    max_tokens: int = 4096
-    temperature: float = 0.6
-    brpo_filter_threshold: float = 0.6
+    voting: int = 1                  # generative only
+    max_tokens: int = 4096           # generative only
+    temperature: float = 0.6         # generative only
+    brpo_filter_threshold: float = 0.6  # generative only
+    scalar_max_length: int = 8192    # scalar only: token-truncate prompt+completion
     default_language: str = "python"
     prompt_key: str = "query"
     language_key: str = "language"
@@ -117,6 +122,7 @@ class CodegenGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         *args,
+        verifier_type: str = "generative",
         verifier_base_url: str,
         verifier_model: str,
         verifier_api_key: str = "EMPTY",
@@ -124,35 +130,106 @@ class CodegenGRPOTrainer(GRPOTrainer):
         verifier_max_tokens: int = 4096,
         verifier_temperature: float = 0.6,
         brpo_filter_threshold: float = 0.6,
+        scalar_max_length: int = 8192,
         default_language: str = "python",
         language_key: str = "language",
         prompt_key: str = "query",
         **kwargs,
     ):
-        # super() requires at least one reward function. The verifier-driven
-        # advantages bypass it (returning zero contributions), so we hand it a
-        # null function that keeps gathering/logging machinery happy.
-        kwargs.setdefault("reward_funcs", [self._null_reward_func])
+        if verifier_type not in ("generative", "scalar"):
+            raise ValueError(f"verifier_type must be 'generative' or 'scalar', got {verifier_type!r}")
+        self._verifier_type = verifier_type
+        if verifier_type == "generative":
+            # super() requires at least one reward function. The BRPO advantages
+            # bypass it (returning zero contributions), so we hand it a null
+            # function that keeps gathering/logging machinery happy.
+            kwargs.setdefault("reward_funcs", [self._null_reward_func])
+        else:
+            # Scalar path: the reward function actually scores rollouts and the
+            # parent's group-relative advantage pipeline runs as usual.
+            kwargs.setdefault("reward_funcs", [self._scalar_reward_func])
         super().__init__(*args, **kwargs)
-        # Long timeout: a single batched call covers the whole local step's
-        # judge prompts, and large groups (G * voting * 2) can take a while.
-        self.verifier_client = OpenAI(base_url=verifier_base_url, api_key=verifier_api_key, timeout=600.0)
         self.verifier_model = verifier_model
-        self.verifier_voting = max(1, int(verifier_voting))
-        self.verifier_max_tokens = verifier_max_tokens
-        self.verifier_temperature = verifier_temperature
-        self.brpo_filter_threshold = brpo_filter_threshold
         self.default_language = default_language
         self.language_key = language_key
         self.prompt_key = prompt_key
         # Verifier tokenizer applies its chat template client-side so we can
-        # drop down to /v1/completions and submit every judge prompt in one
-        # batched HTTP request (vLLM continuous-batches them server-side).
+        # drop down to raw /v1/completions or /pooling and submit every prompt
+        # in one batched HTTP request (vLLM continuous-batches server-side).
         self.verifier_tokenizer = AutoTokenizer.from_pretrained(verifier_model)
+        if verifier_type == "generative":
+            # Long timeout: a single batched call covers the whole local step's
+            # judge prompts, and large groups (G * voting * 2) can take a while.
+            self.verifier_client = OpenAI(base_url=verifier_base_url, api_key=verifier_api_key, timeout=600.0)
+            self.verifier_voting = max(1, int(verifier_voting))
+            self.verifier_max_tokens = verifier_max_tokens
+            self.verifier_temperature = verifier_temperature
+            self.brpo_filter_threshold = brpo_filter_threshold
+        else:
+            # vLLM exposes /pooling at the server root (not under /v1), so strip
+            # the OpenAI-compatible suffix when the user pointed us there.
+            root = verifier_base_url.rstrip("/").removesuffix("/v1")
+            headers = {"Authorization": f"Bearer {verifier_api_key}"} if verifier_api_key else {}
+            self._verifier_http = httpx.Client(base_url=root, timeout=600.0, headers=headers)
+            self.scalar_max_length = scalar_max_length
 
     @staticmethod
     def _null_reward_func(prompts, completions, **kwargs):
         return [0.0] * len(completions)
+
+    def _scalar_reward_func(self, prompts, completions, **kwargs):
+        return self._batched_scalar_score(prompts, completions)
+
+    def _batched_scalar_score(self, prompts, completions) -> List[float]:
+        """Score (prompt, completion) pairs with a vLLM-served reward model.
+
+        Builds the RM's chat template client-side so we can submit the whole
+        batch as token IDs to /pooling in a single HTTP request.
+        """
+        if not completions:
+            return []
+        batch_token_ids: List[List[int]] = []
+        for prompt, completion in zip(prompts, completions):
+            msgs: list = []
+            if isinstance(prompt, str):
+                msgs.append({"role": "user", "content": prompt})
+            else:
+                msgs.extend(prompt)
+            if isinstance(completion, str):
+                msgs.append({"role": "assistant", "content": completion})
+            else:
+                msgs.extend(completion)
+            ids = self.verifier_tokenizer.apply_chat_template(
+                msgs,
+                tokenize=True,
+                truncation=True,
+                max_length=self.scalar_max_length,
+            )
+            batch_token_ids.append(ids)
+        try:
+            resp = self._verifier_http.post(
+                "/pooling",
+                json={"model": self.verifier_model, "input": batch_token_ids},
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        except Exception as exc:
+            log.warning(f"Scalar RM call failed; returning zero rewards: {exc}")
+            return [0.0] * len(completions)
+        scores = [0.0] * len(completions)
+        for item in data:
+            idx = int(item.get("index", 0))
+            if not (0 <= idx < len(scores)):
+                continue
+            payload = item.get("data", item.get("embedding"))
+            if isinstance(payload, list):
+                scores[idx] = float(payload[0]) if payload else 0.0
+            elif payload is not None:
+                scores[idx] = float(payload)
+        mode = "train" if self.model.training else "eval"
+        if scores:
+            self._metrics[mode]["rewards/scalar/mean"].append(sum(scores) / len(scores))
+        return scores
 
     def _render_judge_prompt(self, question: str, code_a: str, code_b: str, language: str) -> str:
         messages = build_pairwise_judge_messages(question, code_a, code_b, language)
@@ -259,6 +336,10 @@ class CodegenGRPOTrainer(GRPOTrainer):
 
     def _generate_and_score_completions(self, inputs):
         output = super()._generate_and_score_completions(inputs)
+        if self._verifier_type != "generative":
+            # Scalar path: the reward function already produced real scores and
+            # the parent computed group-relative advantages from them.
+            return output
 
         # ``inputs`` is already expanded to (per_device_batch * num_generations)
         # by the repeat sampler, so positions align 1:1 with completion_ids.
@@ -375,10 +456,10 @@ def train(cfg: Config):
         vllm_enable_sleep_mode=True,
         steps_per_generation=cfg.grpo_params.gradient_accumulation_steps * cfg.grpo_params.generate_every,
         importance_sampling_level=cfg.grpo_params.importance_sampling_level,
-        # We overwrite advantages directly with BRPO values; the parent's
-        # mean/std normalization runs on the dummy reward so it does not
-        # interact with the final advantages.
-        scale_rewards="none",
+        # Generative/BRPO path forces "none" (advantages are written directly
+        # after super() runs); scalar path falls back to standard group-norm
+        # GRPO unless the user overrode it on the config.
+        scale_rewards="none" if cfg.verifier_params.type == "generative" else (cfg.grpo_params.scale_rewards or "group"),
     )
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.grpo_params.model_path)
@@ -388,6 +469,7 @@ def train(cfg: Config):
         train_dataset=train_data,
         eval_dataset=eval_data,
         processing_class=tokenizer,
+        verifier_type=cfg.verifier_params.type,
         verifier_base_url=cfg.verifier_params.base_url,
         verifier_model=cfg.verifier_params.model,
         verifier_api_key=cfg.verifier_params.api_key,
@@ -395,6 +477,7 @@ def train(cfg: Config):
         verifier_max_tokens=cfg.verifier_params.max_tokens,
         verifier_temperature=cfg.verifier_params.temperature,
         brpo_filter_threshold=cfg.verifier_params.brpo_filter_threshold,
+        scalar_max_length=cfg.verifier_params.scalar_max_length,
         default_language=cfg.verifier_params.default_language,
         language_key=cfg.verifier_params.language_key,
         prompt_key=cfg.verifier_params.prompt_key,

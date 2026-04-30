@@ -24,9 +24,10 @@ grpo_params:
     ref_model_mixup_alpha: 1.0
     generate_every: 1
     importance_sampling_level: token
-    # BRPO writes advantages directly; this knob is forced to "none" inside
-    # codegen_grpotrainer.train() and is kept here only to satisfy the schema.
-    scale_rewards: none
+    # Ignored on the generative/BRPO path (advantages are written directly).
+    # On the scalar path it controls the parent's normalization; defaults to
+    # "group" inside codegen_grpotrainer.train() if left null.
+    scale_rewards: null
 
 gen_params:
     max_completion_length: 8192
@@ -38,16 +39,25 @@ gen_params:
     vllm_server_timeout: 600
 
 verifier_params:
-    # OpenAI-compatible endpoint for the trained pairwise code verifier
-    # (e.g. `vllm serve <verifier_ckpt> --port 8001`). Keep this on a
-    # different port than the policy's colocated vLLM engine.
+    # "generative" -> trained pairwise code verifier scored via /v1/completions
+    #                 (BRPO advantages, ±1 wins). Pair with `scale_rewards: none`.
+    # "scalar"     -> reward model (e.g. project-themis/Themis-RM-8B) served via
+    #                 `vllm serve <ckpt> --task reward`, scored via /pooling.
+    #                 Pair with `scale_rewards: group` for standard GRPO.
+    type: generative
+    # OpenAI-compatible endpoint for the verifier. Keep on a different port
+    # than the policy's colocated vLLM engine.
     base_url: http://localhost:8001/v1
     model: ???                       # required: HF id or local path of the verifier
     api_key: EMPTY
+    # --- generative path only ---
     voting: 1                        # voting rounds; each round queries both A/B orderings
     max_tokens: 4096
     temperature: 0.6
     brpo_filter_threshold: 0.6       # tau_filter: drop groups where |sum R_i| / G exceeds this
+    # --- scalar path only ---
+    scalar_max_length: 8192          # truncate (prompt+completion) tokens before scoring
+    # --- shared ---
     default_language: python
     prompt_key: query                # dataset column with the coding question
     language_key: language           # dataset column with the target language (optional)

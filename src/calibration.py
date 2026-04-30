@@ -6,13 +6,14 @@ import os
 import pickle
 import random
 import uuid
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from datasets import load_dataset
-from evaluate import _create_prompts
+from evaluate import _create_prompts, extract_boxed_contents_list
 from transformers import AutoTokenizer
 from utils import run_inference
 
@@ -164,6 +165,56 @@ def _run_fast_path(args, tokenizer, option_ids: Dict[str, List[int]], cached_pkl
     return _collect_results(completions, meta, option_ids, position=0)
 
 
+def _vote_from_completions(completions: List[str], num_candidates: int) -> Tuple[Optional[Dict[str, float]], Optional[str], Optional[float], int]:
+    valid_options = set(OPTIONS[:num_candidates])
+    votes = []
+    for c in completions:
+        ans = extract_boxed_contents_list(c)
+        if ans is None:
+            continue
+        ans = ans.strip().upper()
+        if ans in valid_options:
+            votes.append(ans)
+    if not votes:
+        return None, None, None, 0
+    counts = Counter(votes)
+    top_count = max(counts.values())
+    pred = sorted(opt for opt, n in counts.items() if n == top_count)[0]
+    n_votes = len(votes)
+    dist = {opt: counts.get(opt, 0) / n_votes for opt in OPTIONS[:num_candidates]}
+    return dist, pred, top_count / n_votes, n_votes
+
+
+def _run_self_consistency_path(args, cached_pkl: Path) -> Tuple[List[Dict], List[float], List[int]]:
+    log.info(f"Cache hit: {cached_pkl.name}. Using self-consistency path.")
+    df = pd.read_pickle(cached_pkl)
+    records, confidences, predicted_correct = [], [], []
+    for _, row in df.iterrows():
+        completions = list(row["completion"])
+        num_candidates = int(row["num_candidates"])
+        dist, pred, conf, n_valid = _vote_from_completions(completions, num_candidates)
+        if dist is None:
+            records.append({"valid": False})
+            continue
+        is_correct = int(pred == row["chosen_answer"])
+        records.append(
+            {
+                "valid": True,
+                "dist": dist,
+                "conf": conf,
+                "predicted": pred,
+                "correct": row["chosen_answer"],
+                "is_correct": is_correct,
+                "num_candidates": num_candidates,
+                "n_samples": len(completions),
+                "n_valid_samples": n_valid,
+            }
+        )
+        confidences.append(conf)
+        predicted_correct.append(is_correct)
+    return records, confidences, predicted_correct
+
+
 def _run_slow_path(args, tokenizer, option_ids: Dict[str, List[int]]) -> Tuple[List[Dict], List[float], List[int]]:
     log.info("Cache miss. Falling back to full generation.")
     data = load_dataset(f"Aletheia-Bench/Aletheia-{args.data}", split="test")
@@ -260,18 +311,25 @@ def compute_brier(confidences: List[float], correct: List[int]) -> float:
 
 
 def main(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.eval_llm)
-    chat_template = Path(__file__).parents[0] / "dsqwen_chat_template_dpo.jinja"
-    tokenizer.chat_template = chat_template.read_text()
-    option_ids = _option_token_ids(tokenizer)
-
-    cached = None if args.no_cache else _lookup_cache(args.eval_llm, args.data)
-    if cached is not None:
-        records, confidences, predicted_correct = _run_fast_path(args, tokenizer, option_ids, cached)
-        path = "fast"
+    if args.method == "self_consistency":
+        cached = _lookup_cache(args.eval_llm, args.data)
+        if cached is None:
+            raise ValueError(f"self_consistency requires cached completions; none found for {args.eval_llm} on {args.data}")
+        records, confidences, predicted_correct = _run_self_consistency_path(args, cached)
+        path = "self_consistency"
     else:
-        records, confidences, predicted_correct = _run_slow_path(args, tokenizer, option_ids)
-        path = "slow"
+        tokenizer = AutoTokenizer.from_pretrained(args.eval_llm)
+        chat_template = Path(__file__).parents[0] / "dsqwen_chat_template_dpo.jinja"
+        tokenizer.chat_template = chat_template.read_text()
+        option_ids = _option_token_ids(tokenizer)
+
+        cached = None if args.no_cache else _lookup_cache(args.eval_llm, args.data)
+        if cached is not None:
+            records, confidences, predicted_correct = _run_fast_path(args, tokenizer, option_ids, cached)
+            path = "fast"
+        else:
+            records, confidences, predicted_correct = _run_slow_path(args, tokenizer, option_ids)
+            path = "slow"
 
     n_valid = len(confidences)
     n_total = len(records)
@@ -310,7 +368,7 @@ def main(args):
             f,
         )
 
-    csv_path = out_dir / "calibration_results.csv"
+    csv_path = out_dir / f"calibration_results_{args.method}.csv"
     new_file = not csv_path.exists()
     with open(csv_path, "a", newline="") as f:
         writer = csv.DictWriter(
@@ -345,5 +403,12 @@ if __name__ == "__main__":
     parser.add_argument("--n_bins", type=int, default=10)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no_cache", action="store_true", help="Skip cache and force full generation.")
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="logprob",
+        choices=["logprob", "self_consistency"],
+        help="logprob: option-token softmax at the boxed position. self_consistency: vote across cached samples; confidence = mode-agreement fraction.",
+    )
     args = parser.parse_args()
     main(args)
