@@ -222,6 +222,12 @@ def main(args):
     rid = str(uuid.uuid4())[:8]
     pkl = out_dir / f"ranking_{rid}.pkl"
 
+    if csv_path.exists():
+        existing = pd.read_csv(csv_path)
+        if ((existing["eval_llm"] == args.eval_llm) & (existing["data"] == args.data)).any():
+            log.info(f"Already computed: eval_llm={args.eval_llm}, data={args.data} — skipping.")
+            return
+
     if args.from_pkl:
         csv_path = out_dir / "ranking_results_revised.csv"
         existing_results = pd.read_csv(csv_path)
@@ -285,9 +291,6 @@ def main(args):
             "transitive",
             "trans_rate",
             "mean_ndcg",
-            "pair_acc",
-            "pair_correct",
-            "pair_total",
             "results_pkl",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -304,9 +307,6 @@ def main(args):
                 "transitive": trans_triples,
                 "trans_rate": f"{trans_rate:.4f}",
                 "mean_ndcg": f"{mean_ndcg:.4f}",
-                "pair_acc": f"{pair_acc:.4f}",
-                "pair_correct": pair_correct,
-                "pair_total": pair_total,
                 "results_pkl": pkl.name,
             }
         )
@@ -319,6 +319,6 @@ if __name__ == "__main__":
     parser.add_argument("--data", type=str, required=True, choices=["CRB", "Heldout", "Strong", "Hard", "Adv"])
     parser.add_argument("--max_tokens", type=int, default=16384)
     parser.add_argument("--max_lists", type=int, default=0, help="Limit number of lists. 0 = all.")
-    parser.add_argument("--from_pkl", type=str, action="store_true", help="Whether to load results from existing pkl files")
+    parser.add_argument("--from_pkl", action="store_true", help="Whether to load results from existing pkl files")
     args = parser.parse_args()
     main(args)
