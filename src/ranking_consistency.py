@@ -175,6 +175,28 @@ def _load_dataset_metadata(data_name: str, max_lists: int):
     return raw, list_sizes, list_pass_rates
 
 
+def _run_random_baseline(raw) -> List[dict]:
+    pair_dataset = raw.map(_build_pair_examples, with_indices=True, num_proc=NUM_WORKERS, desc="Building pairs")
+    pairs = _flatten_pairs(pair_dataset)
+    log.info(f"Generated {len(pairs)} pairwise comparisons for random baseline")
+    rng = np.random.default_rng(0)
+    picks = rng.integers(0, 2, size=len(pairs))
+    records = []
+    for pair, pick in zip(pairs, picks):
+        pick_a = bool(pick == 0)
+        winner = pair["i"] if pick_a else pair["j"]
+        records.append(
+            {
+                "list_id": pair["list_id"],
+                "i": pair["i"],
+                "j": pair["j"],
+                "raw": "A" if pick_a else "B",
+                "winner": winner,
+            }
+        )
+    return records
+
+
 def _run_pairwise_inference(args, raw) -> List[dict]:
     pair_dataset = raw.map(_build_pair_examples, with_indices=True, num_proc=NUM_WORKERS, desc="Building pairs")
     pairs = _flatten_pairs(pair_dataset)
@@ -246,7 +268,10 @@ def main(args):
     else:
         raw, list_sizes, list_pass_rates = _load_dataset_metadata(args.data, args.max_lists)
         log.info(f"Loaded {len(raw)} lists with ≥3 candidates from Aletheia-{args.data}")
-        records = _run_pairwise_inference(args, raw)
+        if args.eval_llm == "random":
+            records = _run_random_baseline(raw)
+        else:
+            records = _run_pairwise_inference(args, raw)
 
     valid = sum(1 for r in records if r["winner"] is not None)
     log.info(f"Parsed {valid}/{len(records)} pairwise verdicts")
