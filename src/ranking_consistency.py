@@ -244,19 +244,19 @@ def main(args):
     rid = str(uuid.uuid4())[:8]
     pkl = out_dir / f"ranking_{rid}.pkl"
 
-    if csv_path.exists():
-        existing = pd.read_csv(csv_path)
-        if ((existing["eval_llm"] == args.eval_llm) & (existing["data"] == args.data)).any():
-            log.info(f"Already computed: eval_llm={args.eval_llm}, data={args.data} — skipping.")
-            return
+    # if csv_path.exists():
+    #     existing = pd.read_csv(csv_path)
+    #     if ((existing["eval_llm"] == args.eval_llm) & (existing["data"] == args.data)).any():
+    #         log.info(f"Already computed: eval_llm={args.eval_llm}, data={args.data} — skipping.")
+    #         return
 
     if args.from_pkl:
-        csv_path = out_dir / "ranking_results_revised.csv"
+        csv_path = out_dir / "ranking_results.csv"
         existing_results = pd.read_csv(csv_path)
-        relevant_row = existing_results[(existing_results["model"] == args.eval_llm) & (existing_results["data"] == args.data)]
-        if not relevant_row:
+        relevant_row = existing_results[(existing_results["eval_llm"] == args.eval_llm) & (existing_results["data"] == args.data)].reset_index(drop=True)
+        if len(relevant_row) < 1:
             raise ValueError(f"No relevant row found in existing_results for model {args.eval_llm} and data {args.data}")
-        pkl_path = Path(relevant_row["results_pkl"])
+        pkl_path = out_dir / relevant_row["results_pkl"][0]
         log.info(f"Loading records from {pkl_path}")
         with open(pkl_path, "rb") as f:
             saved = pickle.load(f)
