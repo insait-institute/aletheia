@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="description" content="Aletheia is an execution-grounded testbed for analyzing what makes RLVR training work for code verifiers: thinking traces, negative samples, and on-policy learning.">
+  <meta property="og:title" content="Aletheia: What Makes RLVR for Code Verifiers Tick?"/>
+  <meta property="og:description" content="We ablate the core components of the RLVR training recipe for surrogate code execution verifiers across model scales and covariate shifts.">
+  <meta property="og:url" content="https://insait-institute.github.io/aletheia/"/>
+  <!-- Path to banner image, should be in the path listed below. Optimal dimenssions are 1200X630-->
+  <meta property="og:image" content="https://raw.githubusercontent.com/insait-institute/aletheia/refs/heads/main/docs/static/images/pipeline.png" />
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
+
+  <meta name="twitter:title" content="Aletheia: What Makes RLVR for Code Verifiers Tick?">
+  <meta name="twitter:description" content="We ablate the core components of the RLVR training recipe for surrogate code execution verifiers across model scales and covariate shifts.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/insait-institute/aletheia/refs/heads/main/docs/static/images/pipeline.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- Keywords for your paper to be indexed by-->
+  <meta name="keywords" content="large language model, large language models, LLM, LLMs, reinforcement learning, RL, RLVR, post-training, dpo, direct preference optimization, raft, rejection sampling, fine-tuning, fine tuning, grpo, group relative policy optimization, thinking traces, reasoning models, on-policy learning, off-policy learning, negative samples, adversarial robustness of LLMs, weak to strong generalization, scalable oversight, easy-to-hard generalization, code generation, code verifier, code verifiers, code verification, LLM-as-a-judge, LLM as a judge, reward model, reward models, reward modelling, surrogate code execution, code execution, code execution models, best-of-n, TMLR">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>Aletheia: What Makes RLVR for Code Verifiers Tick?</title>
+  <link rel="icon" type="image/png" href="static/images/logo.png">
+  <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <link rel="stylesheet" href="static/css/bulma-carousel.min.css">
+  <link rel="stylesheet" href="static/css/bulma-slider.min.css">
+  <link rel="stylesheet" href="static/css/fontawesome.all.min.css">
+  <link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+  <link rel="stylesheet" href="static/css/index.css">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script defer src="static/js/fontawesome.all.min.js"></script>
+  <script src="static/js/bulma-carousel.min.js"></script>
+  <script src="static/js/bulma-slider.min.js"></script>
+  <script src="static/js/index.js"></script>
+</head>
+<body>
+
+
+<section class="hero is-orange">
+  <div class="hero-body">
+    <div class="container is-max-desktop">
+      <div class="columns is-centered">
+        <div class="column has-text-centered">
+          <h1 class="title is-1 publication-title">
+            <img src="static/images/logo.png" alt="Aletheia logo" class="logo">
+            Aletheia: What Makes RLVR for Code Verifiers Tick?
+          </h1>
+
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">Published in <b>Transactions on Machine Learning Research (TMLR), 2026</b></span>
+            </div>
+            <br>
+
+            <!-- Authors -->
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">
+              <a href="https://insait.ai/vatsal-venkatkrishna/" target="_blank">Vatsal Venkatkrishna</a><sup>1</sup><sup><span class="icon"><i class="fas fa-envelope"></i></span></sup>,</span>
+              <span class="author-block">
+              <a href="https://ineil77.github.io/about/" target="_blank">Indraneil Paul</a><sup>2</sup>,</span>
+              <span class="author-block">
+              <a href="https://www.informatik.tu-darmstadt.de/ukp/ukp_home/head_ukp/index.en.jsp" target="_blank"> Iryna Gurevych</a><sup>1,2</sup> </span>
+            </div>
+
+            <!-- Affiliations -->
+            <div class="is-size-5 publication-authors">
+              <span class="author-block">
+                <sup>1</sup><a href="https://insait.ai/" target="_blank">INSAIT</a>, Sofia University "St. Kliment Ohridski"
+              </span>
+              <span class="author-block">
+                <sup>2</sup><a href="https://www.informatik.tu-darmstadt.de/ukp/ukp_home/index.en.jsp" target="_blank">UKP Lab</a>,
+                <a href="https://www.tu-darmstadt.de/" target="_blank">TU Darmstadt</a> and ATHENE
+              </span>
+              <span class="eql-cntrb">
+                <small><br><sup><span class="icon"><i class="fas fa-envelope"></i></span></sup>Corresponding author:
+                  <a href="mailto:vatsal.venkatkrishna@insait.ai">vatsal.venkatkrishna@insait.ai</a>
+                </small>
+              </span>
+            </div>
+
+            <div class="column has-text-centered">
+              <div class="publication-links">
+                <!-- ArXiv abstract Link -->
+                <span class="link-block">
+                  <a href="https://arxiv.org/abs/2601.12186" target="_blank"
+                      class="external-link button is-normal is-rounded is-dark">
+                      <span class="icon"><i class="ai ai-arxiv"></i></span>
+                      <span>arXiv</span>
+                  </a>
+                </span>
+                <!-- OpenReview link -->
+                <span class="link-block">
+                  <a href="https://openreview.net/forum?id=3rVrBGp0mr" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="ai ai-open-access"></i></span>
+                    <span>OpenReview</span>
+                  </a>
+                </span>
+                <!-- Github link -->
+                <span class="link-block">
+                  <a href="https://github.com/insait-institute/aletheia/" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fab fa-github"></i></span>
+                    <span>Code</span>
+                  </a>
+                </span>
+                <!-- HuggingFace link -->
+                <span class="link-block">
+                  <a href="https://huggingface.co/Aletheia-Bench" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon">🤗</span>
+                    <span>Data &amp; Models</span>
+                  </a>
+                </span>
+                <!-- TUdatalib link -->
+                <span class="link-block">
+                  <a href="https://tudatalib.ulb.tu-darmstadt.de/handle/tudatalib/4992" target="_blank"
+                    class="external-link button is-normal is-rounded is-dark">
+                    <span class="icon"><i class="fas fa-database"></i></span>
+                    <span>TUdatalib</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Teaser Image-->
+<section class="hero teaser is-light-orange">
+    <div class="container is-max-desktop">
+        <div class="hero-body has-text-centered">
+            <img src="static/images/pipeline.png" alt="The Aletheia testbed curation pipeline" style="width: 100%; height: auto;"/>
+            <h2 class="subtitle has-text-centered">
+              <b>The <span class="textsc">Aletheia</span> testbed curation pipeline.</b>
+              We (1) generate solutions to competition-level programming problems with pools of weak and strong open-source LLMs,
+              (2) obtain ground-truth pass rates through sandboxed execution,
+              (3) build candidate lists of 2&ndash;5 codes where exactly one is fully correct, and
+              (4) partition the data into fully disjoint training and evaluation sets spanning three covariate shifts:
+              stronger generators, harder comparisons, and adversarial prompts.
+            </h2>
+        </div>
+    </div>
+</section>
+<!-- End teaser Image -->
+
+<!-- TL;DR -->
+<section class="hero is-light">
+    <div class="hero-body">
+      <div class="container is-max-desktop">
+        <div class="column has-text-centered">
+          <h2 class="title is-3">What makes RLVR for code verifiers <span class="orange-text">tick?</span></h2>
+          <div class="has-text-justified">
+            <p>
+              </p><ul>
+                <li><div class="caption"><b>The optimal training recipe is scale-dependent.</b> On-policy learning is the primary performance driver for small (1.5B) verifiers, whereas the thinking budget becomes the most vital factor at larger (14B) scales.</div></li>
+                <li><div class="caption"><b>Negative samples stabilize training and matter more for ranking.</b> They provide a near-constant boost for top-1 selection but become increasingly important for ranking performance as size increases.</div></li>
+                <li><div class="caption"><b>The full RLVR recipe is not always worth it.</b> Offline DPO-Think-14B performs comparably at 5.2&times; lower cost, and dropping thinking traces is a strong compute-efficient strategy at low budgets.</div></li>
+              </ul>
+            <p></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End TL;DR -->
+
+<!-- Paper abstract -->
+<section class="section hero">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Multi-domain thinking verifiers trained via Reinforcement Learning with Verifiable Rewards (RLVR) are a cornerstone of modern post-training.
+            However, their adoption in code generation has lagged behind that of execution feedback due to the prohibitive costs of the full RLVR pipeline.
+            In this work, we ablate three primary choices along the performance&ndash;cost trade-off in RLVR: intermediate thinking traces, learning from negative samples, and on-policy training.
+            We introduce <b>Aletheia</b>, a controlled, execution-grounded testbed to facilitate a decontaminated analysis of code verifier training recipes across disparate model sizes and covariate shifts across two common verifier application scenarios.
+            Our analysis reveals that the optimal training recipe is scale-dependent: on-policy learning is the primary performance driver for small verifiers, whereas the thinking budget becomes the most vital factor at larger scales.
+            Negative samples play a key role in stabilizing training at large sizes, have a constant impact on top-1 selection, but are increasingly important for ranking performance as size increases.
+            Our Pareto optimality analysis demonstrates that eliminating on-policy training at larger model scales could yield a verifier that performs comparably to the full RLVR recipe. Furthermore, we find that eschewing thinking traces is a compute-efficient strategy at lower budgets, offering a strong trade-off between training cost and verifier accuracy. We validate our findings across a Best-of-N deployment setting and two external reward model benchmarks, demonstrating that our findings generalize beyond the controlled testbed.
+            Ultimately, our work offers empirical guidance toward training cost-efficient code verifiers and takes a step toward their wider adoption in post-training pipelines for code generation.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End paper abstract -->
+
+<!-- Testbed -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">The <span class="orange-text">Aletheia</span> Testbed</h2>
+        <div class="content has-text-justified">
+          <p>
+            Evaluating verifiers through their downstream use is noisy, expensive, and slow to iterate on: policy improvement conflates prior capability, reward signal, and the optimization process.
+            Aletheia sidesteps these confounds with an execution-grounded testbed that enforces a strict training&ndash;evaluation partition, isolating algorithmic robustness to out-of-distribution scenarios from simple data exposure.
+          <br><br>
+          <span class="orange-text">Evaluation splits:</span> Starting from competition-level programming problems, we construct four evaluation sets:
+          <b>Aletheia-Heldout</b> (in-distribution), <b>Aletheia-Strong</b> (solutions from stronger generators than those seen during training), <b>Aletheia-Hard</b> (incorrect candidates semantically very close to the correct one), and <b>Aletheia-Adv</b> (adversarially modified code snippets).
+          <br><br>
+          <span class="orange-text">Metrics:</span> Each verifier is evaluated on its ability to select the best candidate (<b>top-1 selection</b>, measured by list accuracy) and to reproduce the full ranked order (<b>reranking</b>, measured by Kendall's &tau;) over lists of 2&ndash;5 codes &mdash; proxies for Best-of-N selection and RL reward modeling, respectively.
+          <br><br>
+          <span class="orange-text">Ablations:</span> Using GRPO as the full recipe, we toggle off one component at a time &mdash; thinking traces (GRPO-Instruct), negative samples (RAFT), and on-policy training (DPO-Think) &mdash; across three verifier sizes (Qwen2.5 1.5B / 7B / 14B).
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Testbed -->
+
+<!-- Findings -->
+<section class="section hero">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Findings</h2>
+        <div class="content has-text-justified">
+          <p>
+            <span class="orange-text">The contribution of thinking traces grows monotonically with model scale.</span>
+            At 1.5&ndash;7B, the <i>style</i> of the intermediate trace makes little difference, but at 14B, reasoning-style traces are worth 8.4 Best-of-N points over short chain-of-thought. The training reasoning budget follows the same pattern: 1.5B saturates beyond 8k tokens, while 7&ndash;14B keep improving up to 16k. Thinking traces are also crucial for easy-to-hard generalization and are what enable verifiers to utilize additional inference compute via self-consistency.
+            <br>
+            <br>
+            <span class="orange-text">On-policy learning is critical for small verifiers, but its importance diminishes with scale.</span>
+            Off-policy training collapses below the random baseline at 1.5B due to degeneration and unparseable verdicts, but the offline&ndash;online gap narrows from 23.3 Best-of-N points at 1.5B to just 6.7 at 14B &mdash; without ever fully closing. Batch-online GRPO recovers neither the full recipe's performance nor a meaningful cost saving at 7&ndash;14B, and inference-time scaling narrows the gap but cannot close it.
+            <br>
+            <br>
+            <span class="orange-text">Negative samples give a near-constant boost for selection, but matter increasingly for ranking.</span>
+            GRPO-Think outperforms RAFT (which trains only on correct responses) at every scale with a near-constant gap of &approx;12.6 Best-of-N points, while the ranking gap <i>grows</i> with scale &mdash; from 7.2 Kendall's &tau; points at 1.5B to 10.8 at 14B. Negatives also stabilize training: without them, reward curves flatline or even degrade at larger sizes.
+            <br>
+            <br>
+            <span class="orange-text">Inference-time compute cannot substitute for any core component.</span>
+            Self-consistency yields modest gains across the board, but even at K=8, ablated recipes fail to match the full GRPO-Think recipe at K=1.
+          </p>
+          <div class="columns">
+            <div class="column">
+              <img src="static/images/loss_curve.png" alt="Training reward curves for RAFT and GRPO" style="width: 100%; height: auto;">
+              <div class="fig-caption">Training without negatives (RAFT) is increasingly unstable at larger scales.</div>
+            </div>
+            <div class="column">
+              <img src="static/images/sc_curves_thinking.png" alt="Inference-time scaling for the thinking ablation" style="width: 100%; height: auto;">
+              <div class="fig-caption">CoT-trained models don't benefit from inference-time compute; thinking models do.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Findings -->
+
+<!-- Pareto -->
+<section class="section hero is-light">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Which Recipe Should <span class="orange-text">You</span> Use?</h2>
+        <div class="content has-text-justified">
+          <div class="columns">
+            <div class="column" style="text-align: center;">
+              <img src="static/images/pareto.png" alt="Cost-performance Pareto curves for BoN and RL applications" style="width: 100%; height: auto;">
+              <div class="fig-caption">Cost&ndash;performance Pareto frontiers for Best-of-N (top) and RL reward modeling (bottom) across the four Aletheia evaluations.</div>
+            </div>
+          </div>
+          <p>
+            <span class="orange-text">DPO-Think-14B is the efficiency sweet spot.</span>
+            At $7.09 per step, it achieves 14B-scale performance at 5.2&times; lower cost than GRPO-Think-14B and is the only 14B method on the Pareto frontier across all evaluations simultaneously.
+            <br><br>
+            <span class="orange-text">Full GRPO is justified only for peak multi-condition performance.</span>
+            The full recipe earns its cost by extending the frontier in-distribution, under stronger generators, and under adversarial perturbations &mdash; but it is dominated on easy-to-hard generalization (Aletheia-Hard), where thinking traces matter most and cheaper alternatives suffice.
+            <br><br>
+            <span class="orange-text">GRPO-Instruct-7B anchors the low-budget end.</span>
+            At $2.07 per step, it sits on the Pareto frontier in every panel and is a competitive baseline before scaling up, though its absolute performance trails DPO-Think-14B.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Pareto -->
+
+<!-- Downstream -->
+<section class="section hero">
+  <div class="container is-max-desktop">
+    <div class="columns is-centered has-text-centered">
+      <div class="column is-four-fifths">
+        <h2 class="title is-3">Do the Findings Hold <span class="orange-text">Downstream?</span></h2>
+        <div class="content has-text-justified">
+          <p>
+            We validate all 21 studied verifiers in a realistic Best-of-N deployment: selecting among 16 solutions generated by Qwen2.5-Coder-7B-Instruct on 1,055 LiveCodeBench problems, and additionally compare against two external reward model benchmarks (RM-Bench and Themis-CodeRewardBench, CRB).
+            Aletheia's metrics are the best proxies for downstream verifier ranking at every scale, with the Kendall's &tau; metric correctly identifying <b>100%</b> of statistically distinguishable verifier comparisons (paired McNemar test) &mdash; ahead of both external benchmarks.
+          </p>
+          <div style="overflow-x: auto;">
+            <table class="table is-striped is-narrow is-fullwidth">
+              <thead>
+                <tr>
+                  <th>Proxy</th>
+                  <th>1.5B &tau;-b (&rho;)</th>
+                  <th>7B &tau;-b (&rho;)</th>
+                  <th>14B &tau;-b (&rho;)</th>
+                  <th>&alpha;&thinsp;=&thinsp;0.05 (n=37)</th>
+                  <th>&alpha;&thinsp;=&thinsp;0.01 (n=25)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><img src="static/images/logo.png" class="intext" alt="Aletheia"> Aletheia ListAcc (Avg)</td>
+                  <td>+0.52 (+0.68)</td><td><b>+0.90 (+0.96)</b></td><td>+0.88 (+0.95)</td><td>94.6%</td><td><b>100%</b></td>
+                </tr>
+                <tr>
+                  <td><img src="static/images/logo.png" class="intext" alt="Aletheia"> Aletheia K&tau; (Avg)</td>
+                  <td><b>+0.81 (+0.89)</b></td><td>+0.62 (+0.75)</td><td><b>+0.98 (+0.99)</b></td><td><b>100%</b></td><td><b>100%</b></td>
+                </tr>
+                <tr>
+                  <td><img src="static/images/themis.png" class="intext" alt="Themis"> CRB (Overall)</td>
+                  <td>+0.14 (+0.36)</td><td>+0.43 (+0.71)</td><td>+0.59 (+0.72)</td><td>78.4%</td><td>80%</td>
+                </tr>
+                <tr>
+                  <td><img src="static/images/themis.png" class="intext" alt="Themis"> CRB (Functional Correctness)</td>
+                  <td>-0.14 (-0.21)</td><td>+0.24 (+0.39)</td><td><b>+0.98 (+0.99)</b></td><td>70.3%</td><td>68%</td>
+                </tr>
+                <tr>
+                  <td><img src="static/images/rmbench.png" class="intext" alt="RM-Bench"> RM-Bench (Overall)</td>
+                  <td>+0.43 (+0.64)</td><td>+0.71 (+0.86)</td><td><b>+0.98 (+0.99)</b></td><td>91.9%</td><td>96%</td>
+                </tr>
+                <tr>
+                  <td><img src="static/images/rmbench.png" class="intext" alt="RM-Bench"> RM-Bench (Code)</td>
+                  <td>+0.39 (+0.45)</td><td>+0.62 (+0.75)</td><td>+0.88 (+0.95)</td><td>89.2%</td><td>96%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="fig-caption">
+            <b>Correlation between oracle (BoN) and proxy rankings.</b> Tie-corrected Kendall's &tau;-b and Spearman's &rho; between verifier rankings by downstream BoN performance and by each proxy metric (left), and the percentage of statistically distinguishable comparisons correctly identified by each proxy under the paired McNemar test (right). An Aletheia metric dominates at every scale.
+          </div>
+          <p>
+            We further check whether each individual finding holds across the downstream BoN rankings and the external benchmarks. Our scale-dependent findings are fully supported by BoN and RM-Bench, confirming that they generalize beyond the controlled testbed; only the reasoning-budget finding is unsupported by CRB, likely because its construction spans auxiliary code tasks our verifiers were not trained on.
+          </p>
+          <div style="overflow-x: auto;">
+            <table class="table is-striped is-narrow is-fullwidth">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Claim</th>
+                  <th>BoN</th>
+                  <th><img src="static/images/themis.png" class="intext" alt="Themis"> CRB</th>
+                  <th><img src="static/images/rmbench.png" class="intext" alt="RM-Bench"> RM-Bench</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>F1</b></td>
+                  <td>The importance of thinking traces <img src="static/images/thinking.png" class="intext" alt="thinking"> grows with scale</td>
+                  <td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td>
+                </tr>
+                <tr>
+                  <td><b>F2</b></td>
+                  <td>The importance of on-policy learning <img src="static/images/online.png" class="intext" alt="online"> decreases with scale</td>
+                  <td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td>
+                </tr>
+                <tr>
+                  <td><b>F3</b></td>
+                  <td>Scaling reasoning budget beyond 8k benefits larger models more</td>
+                  <td><span class="green">&#10004;</span></td><td><span class="red">&#10008;</span></td><td><span class="green">&#10004;</span></td>
+                </tr>
+                <tr>
+                  <td><b>F4</b></td>
+                  <td>Batch-online training <img src="static/images/semionline.png" class="intext" alt="semi-online"> has no significant gain over offline at 7&ndash;14B</td>
+                  <td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td><td><span class="green">&#10004;</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="fig-caption">
+            <b>Validity of Aletheia's findings across BoN and external benchmarks.</b> Each finding is checked against the downstream Best-of-N ranking, CRB, and RM-Bench. Overall, our findings are well-supported by oracle BoN rankings and external benchmarks.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- End Downstream -->
+
+<!--BibTex citation -->
+<section class="section hero is-light">
+    <div class="container is-max-desktop content">
+      <h2><a href="#citation" class="header-link">Citation</a></h2>
+<pre id="BibTeX">@article{venkatkrishna2026aletheia,
+    title   = {Aletheia: What Makes {RLVR} For Code Verifiers Tick?},
+    author  = {Vatsal Venkatkrishna and Indraneil Paul and Iryna Gurevych},
+    journal = {Transactions on Machine Learning Research},
+    issn    = {2835-8856},
+    year    = {2026},
+    url     = {https://openreview.net/forum?id=3rVrBGp0mr}
+}</pre>
+      <div class="columns is-centered has-text-centered">
+        <div class="column is-four-fifths">
+          <button class="button is-small" onclick="copyBibtex()">📋 Copy to clipboard</button>
+        </div>
+      </div>
+    </div>
+  </section>
+<!--End BibTex citation -->
+
+
+
+<footer class="footer">
+  <div class="container">
+    <div class="columns is-centered">
+      <div class="column is-8">
+        <div class="content has-text-centered">
+        This page was built using the <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank">Academic Project Page Template</a> and on the basis of <a href="https://constrained-diffusion.ai/" target="_blank">constrained-diffusion.ai</a>.
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>
+  </body>
+  </html>
