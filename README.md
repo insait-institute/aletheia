@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="figures/logo.png" width="50" align="center" alt="Aletheia Logo"> 
+  <img src="docs/static/images/logo.png" width="50" align="center" alt="Aletheia Logo"> 
   Aletheia: What Makes RLVR For Code Verifiers Tick?
 </h1>
 
@@ -179,8 +179,7 @@ aletheia/
 │           │   └── ...
 │           └──thinkdpo/
 │           │   └── ...
-├── figures/
-│   └── logo.png                  # Project logo
+├── docs/                         # Documentation
 ├── requirements.txt              # Python dependencies
 └── README.md                     # This file
 ```
