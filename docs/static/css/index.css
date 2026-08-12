@@ -380,3 +380,8 @@ th[data-sort-col]:hover {
   margin-top: 0.5em;
   font-style: italic;
 }
+
+.nowrap-table th,
+.nowrap-table td {
+  white-space: nowrap;
+}
