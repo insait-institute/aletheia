@@ -1,10 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Didact+Gothic&display=swap');
 
 :root {
-  --orange-color: #FF7F50;
+  --orange-color: #775B59;
   --orange-color-light: #FFB39980;
-  --authors_aff: #FFD700;
-  --color-starter: #FF7F50;
+  --authors_aff: #FFCF99;
+  --color-starter: #A43D35;
 }
 
 
@@ -81,19 +81,20 @@ a {
 
 .caption {
   font-weight: bold;
-  margin: 20px 6% 35px 6%; 
+  margin: 20px 6% 35px 6%;
   padding: 0 0 0 2%;
   /* border-left: thick solid #B22222; */
   border-left: thick solid var(--orange-color);
-  /* color: #780808; */
 }
 
 .intext {
   height: 1.1em;
+  vertical-align: -0.2em;
 }
 
 .intext-big {
   height: 1.3em;
+  vertical-align: -0.25em;
 }
 
 .green {
@@ -181,7 +182,7 @@ button.active {
   background-color: #fbfbfb;
   color: #333;
   font-family: 'Courier', sans-serif, monospace;
-  overflow-y: scroll; 
+  overflow-y: scroll;
   max-height: 350px;
 }
 
@@ -384,4 +385,9 @@ th[data-sort-col]:hover {
 .nowrap-table th,
 .nowrap-table td {
   white-space: nowrap;
+}
+
+.table.padded-table th,
+.table.padded-table td {
+  padding: 0.4em 1.2em;
 }

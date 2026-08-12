@@ -40,7 +40,7 @@ Multi-domain thinking verifiers trained via Reinforcement Learning from Verifiab
 ### Installation
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/vatsal-kr/aletheia.git
+   git clone https://github.com/insait-institute/aletheia.git
    cd aletheia
    ```
 
