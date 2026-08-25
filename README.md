@@ -191,18 +191,16 @@ aletheia/
 If you find this work useful, please cite our paper:
 
 ```bibtex
-@misc{venkatkrishna2026aletheiamakesrlvrcode,
-      title={Aletheia: What Makes RLVR For Code Verifiers Tick?}, 
-      author={Vatsal Venkatkrishna and Indraneil Paul and Iryna Gurevych},
-      year={2026},
-      eprint={2601.12186},
-      archivePrefix={arXiv},
-      primaryClass={cs.SE},
-      url={https://arxiv.org/abs/2601.12186}, 
+@article{venkatkrishna2026aletheia,
+    title={Aletheia: What Makes {RLVR} For Code Verifiers Tick?},
+    author={Vatsal Venkatkrishna and Indraneil Paul and Iryna Gurevych},
+    journal={Transactions on Machine Learning Research},
+    issn={2835-8856},
+    year={2026},
+    url={https://openreview.net/forum?id=3rVrBGp0mr},
+    note={}
 }
 ```
-
-*Note: Full citation details coming soon.*
 
 ---
 
